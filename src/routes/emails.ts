@@ -24,6 +24,7 @@ import {
   ReplyType,
 } from '../types';
 import { saveEmailMessage, loadEmailMessage, createEmailMetadata } from '../services/emailProcessor.js';
+import { sendEmailDraft, testEmailConnection } from '../services/emailSender.js';
 
 const router = express.Router();
 
@@ -57,8 +58,26 @@ router.post('/compose', async (req, res) => {
 
     const result = await composeEmail(emailAgent, composition);
     
-    if (result.success) {
-      res.json(result);
+    if (result.success && result.data) {
+      // Send the composed email to lukaceranic38@gmail.com
+      const emailSendResult = await sendEmailDraft(result.data, 'lukaceranic38@gmail.com');
+      
+      if (emailSendResult.success) {
+        res.json({
+          ...result,
+          emailSent: true,
+          messageId: emailSendResult.messageId,
+          sentTo: 'lukaceranic38@gmail.com'
+        });
+      } else {
+        // Still return the composed email even if sending failed
+        res.json({
+          ...result,
+          emailSent: false,
+          sendError: emailSendResult.error,
+          message: 'Email composed successfully but failed to send'
+        });
+      }
     } else {
       res.status(500).json({ error: result.error });
     }
@@ -338,6 +357,30 @@ router.get('/agent/capabilities', (req, res) => {
     res.json({ success: true, data: capabilities });
   } catch (error) {
     console.error('Agent capabilities error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Test email connection
+router.get('/test-connection', async (req, res) => {
+  try {
+    const testResult = await testEmailConnection();
+    
+    if (testResult.success) {
+      res.json({ 
+        success: true, 
+        message: 'Email service is properly configured and working',
+        data: { connectionStatus: 'verified' }
+      });
+    } else {
+      res.status(500).json({ 
+        success: false, 
+        error: 'Email connection test failed',
+        details: testResult.error
+      });
+    }
+  } catch (error) {
+    console.error('Email connection test error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -7,9 +7,13 @@ import * as dotenv from 'dotenv';
 import cors from 'cors';
 import docsRouter from './src/routes/docs.js';
 import emailRouter from './src/routes/emails.js';
+import { initializeEmailService } from './src/services/emailSender.js';
 
 // Load environment variables
 dotenv.config();
+
+// Initialize email service
+initializeEmailService();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
