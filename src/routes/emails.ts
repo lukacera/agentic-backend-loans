@@ -24,7 +24,7 @@ import {
   ReplyType,
 } from '../types';
 import { saveEmailMessage, loadEmailMessage, createEmailMetadata } from '../services/emailProcessor.js';
-import { sendEmailDraft, testEmailConnection } from '../services/emailSender.js';
+import { sendEmail } from '../services/emailSender.js';
 
 const router = express.Router();
 
@@ -59,22 +59,26 @@ router.post('/compose', async (req, res) => {
     const result = await composeEmail(emailAgent, composition);
     
     if (result.success && result.data) {
-      // Send the composed email to lukaceranic38@gmail.com
-      const emailSendResult = await sendEmailDraft(result.data, 'lukaceranic38@gmail.com');
-      
-      if (emailSendResult.success) {
+      try {
+        // Send the composed email using the available sendEmail function
+        await sendEmail({
+          to: Array.isArray(result.data.to) ? result.data.to : [result.data.to],
+          subject: result.data.subject,
+          text: result.data.body,
+          html: `<pre>${result.data.body}</pre>`
+        });
+        
         res.json({
           ...result,
           emailSent: true,
-          messageId: emailSendResult.messageId,
-          sentTo: 'lukaceranic38@gmail.com'
+          sentTo: result.data.to
         });
-      } else {
+      } catch (sendError) {
         // Still return the composed email even if sending failed
         res.json({
           ...result,
           emailSent: false,
-          sendError: emailSendResult.error,
+          sendError: sendError instanceof Error ? sendError.message : 'Unknown send error',
           message: 'Email composed successfully but failed to send'
         });
       }
@@ -364,19 +368,19 @@ router.get('/agent/capabilities', (req, res) => {
 // Test email connection
 router.get('/test-connection', async (req, res) => {
   try {
-    const testResult = await testEmailConnection();
+    // Simple test by checking if SendGrid API key is configured
+    const isConfigured = !!process.env.SENDGRID_API_KEY;
     
-    if (testResult.success) {
+    if (isConfigured) {
       res.json({ 
         success: true, 
-        message: 'Email service is properly configured and working',
-        data: { connectionStatus: 'verified' }
+        message: 'Email service is properly configured',
+        data: { connectionStatus: 'configured' }
       });
     } else {
       res.status(500).json({ 
         success: false, 
-        error: 'Email connection test failed',
-        details: testResult.error
+        error: 'SendGrid API key not configured'
       });
     }
   } catch (error) {

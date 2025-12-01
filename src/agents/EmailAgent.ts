@@ -67,8 +67,12 @@ export const composeEmail = async (
     - Keep it concise and professional
     - Include proper greeting and closing
     - Structure the email logically
+    - DO NOT use em dashes and DO NOT start with I hope this email finds you well.
+    - Be authentic
+    - Do not use cliches
+    - Do not make the email unnecessarily long
     ${composition.context ? `- Context: ${composition.context}` : ''}`;
-
+  
     const userPrompt = `Write an email with the following requirements:
     - Recipients: ${composition.recipients.join(', ')}
     - Subject: ${composition.subject}
