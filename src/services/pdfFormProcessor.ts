@@ -197,46 +197,54 @@ export const fillPDFForm = async (
 export const mapDataWithAI = async (
   formFields: PDFFormField[],
   userData: Record<string, any>,
-  agentState: any, // AgentState from BaseAgent
+  agentState: any,
   customInstructions?: string
 ): Promise<PDFFormData> => {
   try {
     const fieldNames = formFields.map(f => f.name).join(', ');
-    const userDataKeys = Object.keys(userData).join(', ');
     const userDataSample = JSON.stringify(userData, null, 2);
     
-    const prompt = `You are a form-filling expert. I have a PDF form with these fields: ${fieldNames}
+    // System prompt - the instructions for the AI
+    const systemPrompt = `You are a form-filling expert. Your task is to intelligently map user data to PDF form fields.
+    Rules:
+    - Return ONLY a valid JSON object, no explanation or markdown
+    - Keys must be exact PDF field names from the provided list
+    - Values should be the corresponding data from user input
+    - Use intelligent mapping (e.g., "firstName" maps to "First Name" or "first_name")
+    - For checkboxes, use boolean true/false
+    - For missing data, omit the field from the response
+    - Split combined fields intelligently (e.g., "fullName" can map to separate "Name" or "First Name"/"Last Name" fields)
+
+    ${customInstructions ? `Additional instructions: ${customInstructions}` : ''}`;
+
+      // User input - the actual data to process
+      const userInput = `PDF Form Fields: ${fieldNames}
+
+    User Data to Map:
+    {${userDataSample}}
+
+    Please provide the mapping as a JSON object.`;
+
+    const response = await processWithLLM(agentState, systemPrompt, userInput);
     
-And I have this user data: ${userDataSample}
-
-Please map the user data to the form fields. Return a JSON object where:
-- Keys are the exact PDF field names 
-- Values are the corresponding data from user input
-- Use intelligent mapping (e.g., "firstName" maps to "First Name" or "first_name")
-- For checkboxes, use boolean true/false
-- For missing data, omit the field from the response
-
-${customInstructions ? `Additional instructions: ${customInstructions}` : ''}
-
-Return only the JSON object, no explanation.`;
-
-    console.log("agentState in mapDataWithAI:", agentState);
-    console.log("Prompt sent to LLM:", prompt);
-    console.log("User data keys:", userDataKeys);
-    // This would use your existing LLM processing function
-    const response = await processWithLLM(agentState, prompt, userDataKeys);
-
     try {
-      return JSON.parse(response);
+      // Clean up response in case LLM adds markdown code blocks
+      let cleanedResponse = response.trim();
+      if (cleanedResponse.startsWith('```json')) {
+        cleanedResponse = cleanedResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+      } else if (cleanedResponse.startsWith('```')) {
+        cleanedResponse = cleanedResponse.replace(/```\n?/g, '');
+      }
+      
+      return JSON.parse(cleanedResponse);
     } catch (parseError) {
       console.error('Failed to parse AI mapping response:', response);
-      // Fallback to simple key matching
+      console.log('Falling back to simple field mapping...');
       return simpleFieldMapping(formFields, userData);
     }
     
   } catch (error) {
     console.error('AI mapping failed:', error);
-    // Fallback to simple mapping
     return simpleFieldMapping(formFields, userData);
   }
 };
