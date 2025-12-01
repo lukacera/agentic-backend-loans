@@ -4,6 +4,7 @@ import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { RunnableSequence } from '@langchain/core/runnables';
 import * as dotenv from 'dotenv';
+import docsRouter from './src/routes/docs.js';
 
 // Load environment variables
 dotenv.config();
@@ -15,53 +16,55 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Initialize the LangChain agent
-class AIAgent {
-  private llm: ChatOpenAI;
-  private chain: RunnableSequence;
+// Initialize the LangChain components using functional approach
+const createLLM = () => {
+  return new ChatOpenAI({
+    openAIApiKey: process.env.OPENAI_API_KEY,
+    modelName: 'gpt-3.5-turbo',
+    temperature: 0.7,
+  });
+};
 
-  constructor() {
-    // Initialize the OpenAI LLM
-    this.llm = new ChatOpenAI({
-      openAIApiKey: process.env.OPENAI_API_KEY,
-      modelName: 'gpt-3.5-turbo',
-      temperature: 0.7,
-    });
+const createPromptTemplate = () => {
+  return ChatPromptTemplate.fromMessages([
+    ["system", "You are a helpful AI assistant. Answer questions clearly and concisely."],
+    ["human", "{input}"]
+  ]);
+};
 
-    // Create a prompt template
-    const prompt = ChatPromptTemplate.fromMessages([
-      ["system", "You are a helpful AI assistant. Answer questions clearly and concisely."],
-      ["human", "{input}"]
-    ]);
+const createChain = () => {
+  const llm = createLLM();
+  const prompt = createPromptTemplate();
+  
+  return RunnableSequence.from([
+    prompt,
+    llm,
+    new StringOutputParser()
+  ]);
+};
 
-    // Create the chain
-    this.chain = RunnableSequence.from([
-      prompt,
-      this.llm,
-      new StringOutputParser()
-    ]);
+const processQuery = async (input: string): Promise<string> => {
+  try {
+    const chain = createChain();
+    const response = await chain.invoke({ input });
+    return response;
+  } catch (error) {
+    console.error('Error processing query:', error);
+    throw new Error('Failed to process query');
   }
-
-  async processQuery(input: string): Promise<string> {
-    try {
-      const response = await this.chain.invoke({ input });
-      return response;
-    } catch (error) {
-      console.error('Error processing query:', error);
-      throw new Error('Failed to process query');
-    }
-  }
-}
-
-// Initialize the agent
-const agent = new AIAgent();
+};
 
 // Routes
 app.get('/', (req, res) => {
   res.json({ 
-    message: 'Torvely AI Agent Backend is running!',
+    message: 'Torvely AI Multi-Agent Backend is running!',
+    agents: {
+      chat: 'Original chat agent',
+      documents: 'Document processing agent'
+    },
     endpoints: {
       chat: 'POST /api/chat',
+      documents: 'GET /api/docs',
       health: 'GET /health'
     }
   });
@@ -71,6 +74,9 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
+// Agent routes
+app.use('/api/docs', docsRouter);
+
 app.post('/api/chat', async (req, res) => {
   try {
     const { message } = req.body;
@@ -79,7 +85,7 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'Message is required' });
     }
 
-    const response = await agent.processQuery(message);
+    const response = await processQuery(message);
     
     res.json({ 
       response,
