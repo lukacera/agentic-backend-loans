@@ -1,0 +1,41 @@
+{
+  "id": "2336bfcc-be50-4267-b320-0fd10699b681",
+  "createdAt": "2025-12-01T15:52:04.185Z",
+  "updatedAt": "2025-12-01T15:52:04.185Z",
+  "name": "Thank You",
+  "subject": "Thank you for {{reason}}",
+  "body": "Dear {{recipientName}},\n\nThank you for {{reason}}. {{gratitudeMessage}}\n\n{{nextSteps}}\n\nI look forward to {{futureInteraction}}.\n\nWarm regards,\n{{senderName}}",
+  "category": "thank_you",
+  "variables": [
+    {
+      "name": "recipientName",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "senderName",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "reason",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "gratitudeMessage",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "nextSteps",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "futureInteraction",
+      "type": "string",
+      "required": true
+    }
+  ]
+}

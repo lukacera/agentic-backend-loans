@@ -2,7 +2,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { RunnableSequence } from '@langchain/core/runnables';
-import { AgentConfig, AgentStatus, BaseAgentResponse } from '../types/common.js';
+import { AgentConfig, AgentStatus, BaseAgentResponse } from '../types';
 
 // Agent state type
 export interface AgentState {

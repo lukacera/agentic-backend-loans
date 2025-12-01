@@ -13,14 +13,13 @@ import {
   getDocumentAgentCapabilities
 } from '../agents/DocumentAgent.js';
 import { getAgentStatus } from '../agents/BaseAgent.js';
-import { AnalysisType, SupportedMimeTypes } from '../types/documents.js';
+import { PDFFormData, SupportedMimeTypes } from '../types';
 import { 
   extractFormFields, 
   fillPDFForm, 
   mapDataWithAI,
   initializePDFDirectories
 } from '../services/pdfFormProcessor.js';
-import { PDFFormData } from '../types/pdfForms.js';
 
 const router = express.Router();
 

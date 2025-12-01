@@ -1,0 +1,36 @@
+{
+  "id": "bc68ea21-bb75-4d40-8bb4-df7c81e72760",
+  "createdAt": "2025-12-01T15:53:04.162Z",
+  "updatedAt": "2025-12-01T15:53:04.162Z",
+  "name": "Follow Up",
+  "subject": "Following up on {{subject}}",
+  "body": "Hi {{recipientName}},\n\nI wanted to follow up on {{previousContext}}.\n\n{{followUpContent}}\n\nPlease let me know if you have any questions or need additional information.\n\nBest regards,\n{{senderName}}",
+  "category": "follow_up",
+  "variables": [
+    {
+      "name": "recipientName",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "senderName",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "subject",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "previousContext",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "followUpContent",
+      "type": "string",
+      "required": true
+    }
+  ]
+}

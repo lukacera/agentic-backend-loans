@@ -4,7 +4,9 @@ import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { RunnableSequence } from '@langchain/core/runnables';
 import * as dotenv from 'dotenv';
+import cors from 'cors';
 import docsRouter from './src/routes/docs.js';
+import emailRouter from './src/routes/emails.js';
 
 // Load environment variables
 dotenv.config();
@@ -13,6 +15,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -60,11 +63,13 @@ app.get('/', (req, res) => {
     message: 'Torvely AI Multi-Agent Backend is running!',
     agents: {
       chat: 'Original chat agent',
-      documents: 'Document processing agent'
+      documents: 'Document processing agent',
+      email: 'AI-powered email agent'
     },
     endpoints: {
       chat: 'POST /api/chat',
       documents: 'GET /api/docs',
+      emails: 'GET /api/emails',
       health: 'GET /health'
     }
   });
@@ -76,6 +81,7 @@ app.get('/health', (req, res) => {
 
 // Agent routes
 app.use('/api/docs', docsRouter);
+app.use('/api/emails', emailRouter);
 
 app.post('/api/chat', async (req, res) => {
   try {

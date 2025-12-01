@@ -12,7 +12,7 @@ import {
   AnalysisType, 
   SupportedMimeTypes,
   AIAnalysis 
-} from '../types/documents.js';
+} from '../types';
 
 // Document storage functions
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads');

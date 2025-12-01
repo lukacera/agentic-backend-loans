@@ -1,0 +1,41 @@
+{
+  "id": "e91181e0-07a2-4b45-8910-5f391ae82fee",
+  "createdAt": "2025-12-01T15:52:58.624Z",
+  "updatedAt": "2025-12-01T15:52:58.624Z",
+  "name": "Business Introduction",
+  "subject": "Introduction: {{senderName}} from {{companyName}}",
+  "body": "Dear {{recipientName}},\n\nI hope this email finds you well. My name is {{senderName}} and I am {{position}} at {{companyName}}.\n\n{{introduction}}\n\n{{callToAction}}\n\nBest regards,\n{{senderName}}\n{{companyName}}",
+  "category": "business",
+  "variables": [
+    {
+      "name": "recipientName",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "senderName",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "companyName",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "position",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "introduction",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "callToAction",
+      "type": "string",
+      "required": true
+    }
+  ]
+}

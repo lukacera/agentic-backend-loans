@@ -12,9 +12,9 @@ import {
   DocumentMetadata, 
   ProcessedDocument, 
   AnalysisType, 
-  DocumentStatus
-} from '../types/documents.js';
-import { BaseAgentResponse } from '../types/common.js';
+  DocumentStatus,
+  BaseAgentResponse
+} from '../types';
 
 // Create document agent
 export const createDocumentAgent = (): AgentState => {
