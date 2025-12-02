@@ -2,14 +2,10 @@ import { AgentState, createAgent, createResponse, processWithLLM } from './BaseA
 import { 
   initializeEmailStorage,
   saveEmailDraft,
-  loadEmailDraft,
-  listEmailDrafts,
-  deleteEmailDraft,
 } from '../services/emailProcessor.js';
 import {
   EmailMessage,
   EmailDraft,
-  EmailTemplate,
   EmailComposition,
   EmailReplyContext,
   EmailAnalysisResult,
@@ -49,7 +45,18 @@ export const composeEmail = async (
     - Maximum 3-4 sentences for simple replies
     - One sentence per paragraph when possible
     - Skip formalities unless the sender used them first
-    - Include proper greeting and closing
+
+    // Greeting rules:
+    - If they used my first name: use theirs (no "Hi" needed)
+    - If formal: match their formality level
+    - If continuing a thread: skip greeting entirely, jump straight to content
+
+    // Closing rules:
+    - Simple replies: no closing needed
+    - Requests/asks: "Thanks"
+    - First contact: "Best"
+    - Never use: "Best regards," "Sincerely," "Kind regards"
+    
     - Structure the email logically
     - DO NOT use em dashes and DO NOT start with I hope this email finds you well.
     - Use short phrases
@@ -124,9 +131,20 @@ export const generateEmailReply = async (
     - Reply type: ${replyContext.replyType}
     - ${replyContext.includeOriginal ? 'Include reference to original message' : 'Do not quote original message'}
     - Maximum 3-4 sentences for simple replies
-- One sentence per paragraph when possible
-- Skip formalities unless the sender used them first
-    - Include proper greeting and closing
+    - One sentence per paragraph when possible
+    - Skip formalities unless the sender used them first
+    
+    // Greeting rules:
+    - If they used my first name: use theirs (no "Hi" needed)
+    - If formal: match their formality level
+    - If continuing a thread: skip greeting entirely, jump straight to content
+
+    // Closing rules:
+    - Simple replies: no closing needed
+    - Requests/asks: "Thanks"
+    - First contact: "Best"
+    - Never use: "Best regards," "Sincerely," "Kind regards"
+
     - Structure the email logically
     - DO NOT use em dashes and DO NOT start with I hope this email finds you well.
     - Use short phrases
@@ -276,226 +294,6 @@ export const analyzeEmail = async (
       undefined,
       error instanceof Error ? error.message : 'Failed to analyze email',
       Date.now() - startTime
-    );
-  }
-};
-
-// Get all email drafts
-export const getAllDrafts = async (): Promise<BaseAgentResponse<EmailDraft[]>> => {
-  try {
-    const drafts = await listEmailDrafts();
-    return createResponse(true, drafts);
-    
-  } catch (error) {
-    console.error('Error listing drafts:', error);
-    return createResponse<EmailDraft[]>(
-      false,
-      undefined,
-      error instanceof Error ? error.message : 'Failed to list drafts'
-    );
-  }
-};
-
-// Delete email draft
-export const removeDraft = async (
-  draftId: string
-): Promise<BaseAgentResponse<boolean>> => {
-  try {
-    const success = await deleteEmailDraft(draftId);
-    
-    if (!success) {
-      return createResponse(
-        false,
-        false,
-        'Failed to delete draft'
-      );
-    }
-
-    return createResponse(true, true);
-    
-  } catch (error) {
-    console.error('Error deleting draft:', error);
-    return createResponse(
-      false,
-      false,
-      error instanceof Error ? error.message : 'Failed to delete draft'
-    );
-  }
-};
-
-// Get email draft by ID
-export const getDraft = async (
-  draftId: string
-): Promise<BaseAgentResponse<EmailDraft>> => {
-  try {
-    const draft = await loadEmailDraft(draftId);
-    
-    if (!draft) {
-      return createResponse<EmailDraft>(
-        false,
-        undefined,
-        'Draft not found'
-      );
-    }
-
-    return createResponse(true, draft);
-    
-  } catch (error) {
-    console.error('Error retrieving draft:', error);
-    return createResponse<EmailDraft>(
-      false,
-      undefined,
-      error instanceof Error ? error.message : 'Failed to retrieve draft'
-    );
-  }
-};
-
-// Update email draft
-export const updateDraft = async (
-  draftId: string,
-  updates: Partial<EmailDraft>
-): Promise<BaseAgentResponse<EmailDraft>> => {
-  try {
-    const existingDraft = await loadEmailDraft(draftId);
-    
-    if (!existingDraft) {
-      return createResponse<EmailDraft>(
-        false,
-        undefined,
-        'Draft not found'
-      );
-    }
-
-    // Apply updates
-    const updatedDraft: EmailDraft = {
-      ...existingDraft,
-      ...updates,
-      id: existingDraft.id, // Ensure ID doesn't change
-      createdAt: existingDraft.createdAt, // Preserve creation date
-      updatedAt: new Date()
-    };
-
-    await saveEmailDraft(updatedDraft);
-
-    return createResponse(true, updatedDraft);
-    
-  } catch (error) {
-    console.error('Error updating draft:', error);
-    return createResponse<EmailDraft>(
-      false,
-      undefined,
-      error instanceof Error ? error.message : 'Failed to update draft'
-    );
-  }
-};
-
-// Improve email with AI suggestions
-export const improveEmail = async (
-  agent: AgentState,
-  draftId: string,
-  improvementType: 'tone' | 'clarity' | 'length' | 'professionalism' | 'engagement' = 'clarity'
-): Promise<BaseAgentResponse<EmailDraft>> => {
-  const startTime = Date.now();
-
-  try {
-    const draft = await loadEmailDraft(draftId);
-    
-    if (!draft) {
-      return createResponse<EmailDraft>(
-        false,
-        undefined,
-        'Draft not found',
-        Date.now() - startTime
-      );
-    }
-
-    const systemPrompt = `You are an expert email editor. Improve the given email based on the specified criteria.
-    
-    Improvement focus: ${improvementType}
-    
-    Guidelines:
-    - Maintain the original intent and key information
-    - Make the email more ${improvementType === 'tone' ? 'appropriate in tone' : 
-                            improvementType === 'clarity' ? 'clear and understandable' :
-                            improvementType === 'length' ? 'concise' :
-                            improvementType === 'professionalism' ? 'professional' :
-                            'engaging'}
-    - Preserve the recipient and subject appropriateness
-    - Keep the same general structure`;
-
-    const userPrompt = `Improve this email for better ${improvementType}:
-    
-    Subject: ${draft.subject}
-    Body: ${draft.body}
-    
-    Return only the improved email body. Do not change the subject or add explanations.`;
-
-    const improvedBody = await processWithLLM(agent, systemPrompt, userPrompt);
-
-    // Create updated draft
-    const updatedDraft: EmailDraft = {
-      ...draft,
-      body: improvedBody,
-      updatedAt: new Date()
-    };
-
-    await saveEmailDraft(updatedDraft);
-
-    return createResponse(
-      true,
-      updatedDraft,
-      undefined,
-      Date.now() - startTime
-    );
-
-  } catch (error) {
-    console.error('Email improvement error:', error);
-    return createResponse<EmailDraft>(
-      false,
-      undefined,
-      error instanceof Error ? error.message : 'Failed to improve email',
-      Date.now() - startTime
-    );
-  }
-};
-
-// Generate email subject suggestions
-export const generateSubjectSuggestions = async (
-  agent: AgentState,
-  emailBody: string,
-  context?: string
-): Promise<BaseAgentResponse<string[]>> => {
-  try {
-    const systemPrompt = `You are an expert at writing compelling email subject lines. Generate multiple subject line options based on the email content.
-    
-    Guidelines:
-    - Make subjects clear and specific
-    - Keep them under 60 characters when possible
-    - Make them engaging and relevant
-    - Avoid spam-trigger words
-    - Match the tone of the email content`;
-
-    const userPrompt = `Generate 5 different subject line options for this email:
-    
-    Email Body: ${emailBody}
-    ${context ? `Context: ${context}` : ''}
-    
-    Return only the subject lines, one per line, without numbers or bullets.`;
-
-    const suggestionsText = await processWithLLM(agent, systemPrompt, userPrompt);
-    const suggestions = suggestionsText.split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 0)
-      .slice(0, 5); // Ensure max 5 suggestions
-
-    return createResponse(true, suggestions);
-
-  } catch (error) {
-    console.error('Subject generation error:', error);
-    return createResponse<string[]>(
-      false,
-      undefined,
-      error instanceof Error ? error.message : 'Failed to generate subject suggestions'
     );
   }
 };
