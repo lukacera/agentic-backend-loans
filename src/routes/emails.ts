@@ -93,7 +93,13 @@ router.post('/compose', async (req, res) => {
 // Generate email reply
 router.post('/reply', async (req, res) => {
   try {
-    const { originalMessageId, replyType, tone, includeOriginal, customInstructions } = req.body;
+    const { 
+      originalMessageId, 
+      replyType, 
+      tone, 
+      includeOriginal, 
+      customInstructions 
+    } = req.body;
     
     if (!originalMessageId) {
       return res.status(400).json({ error: 'Original message ID is required' });

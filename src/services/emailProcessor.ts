@@ -155,14 +155,38 @@ export const saveEmailMessage = async (email: EmailMessage): Promise<void> => {
   const emailPath = path.join(EMAILS_DIR, `${email.id}.json`);
   await fs.writeJson(emailPath, email, { spaces: 2 });
 };
-
+const convertDraftToEmailMessage = (draft: EmailDraft): EmailMessage => {
+  return {
+    id: draft.id,
+    subject: draft.subject,
+    body: draft.body,
+    from: 'team@salestorvely.com', // You'd need to set this appropriately
+    to: draft.to,
+    cc: draft.cc,
+    bcc: draft.bcc,
+    createdAt: draft.createdAt,
+    updatedAt: draft.updatedAt,
+    priority: EmailPriority.NORMAL,
+    status: EmailStatus.DRAFT
+  };
+};
 // Load email message
 export const loadEmailMessage = async (emailId: string): Promise<EmailMessage | null> => {
   try {
+    // First, try the main emails directory
     const emailPath = path.join(EMAILS_DIR, `${emailId}.json`);
     if (await fs.pathExists(emailPath)) {
       return await fs.readJson(emailPath);
     }
+    
+    // If not found, try the drafts folder
+    const draftPath = path.join(DRAFTS_DIR, `${emailId}.json`);
+    if (await fs.pathExists(draftPath)) {
+      const draft = await fs.readJson(draftPath);
+      // Convert draft to EmailMessage format if needed
+      return convertDraftToEmailMessage(draft);
+    }
+    
     return null;
   } catch (error) {
     console.error('Error loading email:', error);

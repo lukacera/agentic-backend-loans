@@ -136,6 +136,13 @@ export const generateEmailReply = async (
     - ${replyContext.includeOriginal ? 'Include reference to original message' : 'Do not quote original message'}
     - Be concise and professional
     - Address all points raised in the original email
+    - Structure the email logically
+    - DO NOT use em dashes and DO NOT start with I hope this email finds you well.
+    - Be authentic
+    - Do not use cliches
+    - Do not use the word "insights"
+    - Use short phrases
+    - Do not make the email unnecessarily long
     ${replyContext.customInstructions ? `- Additional instructions: ${replyContext.customInstructions}` : ''}`;
 
     const userPrompt = `Generate a reply to this email:
