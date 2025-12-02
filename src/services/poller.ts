@@ -2,7 +2,7 @@ import { fetchEmails } from './emailFetcher';
 import { handleEmail } from './emailHandler';
 import { sendEmail } from './emailSender';
 
-const POLL_INTERVAL = Number(process.env.POLL_INTERVAL) || 2000; // 2 seconds
+const POLL_INTERVAL = Number(process.env.POLL_INTERVAL) || 20000; // 20 seconds
 
 async function pollEmails() {
   try {
