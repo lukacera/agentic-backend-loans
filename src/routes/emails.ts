@@ -5,8 +5,6 @@ import {
   composeEmail,
   generateEmailReply,
   analyzeEmail,
-  createEmailFromTemplate,
-  getAllTemplates,
   getAllDrafts,
   getDraft,
   updateDraft,
@@ -155,49 +153,6 @@ router.post('/analyze', async (req, res) => {
     }
   } catch (error) {
     console.error('Email analysis error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Create email from template
-router.post('/templates/:templateId/create', async (req, res) => {
-  try {
-    const { templateId } = req.params;
-    const { variables, recipients } = req.body;
-    
-    if (!recipients || recipients.length === 0) {
-      return res.status(400).json({ error: 'Recipients are required' });
-    }
-
-    if (!variables || typeof variables !== 'object') {
-      return res.status(400).json({ error: 'Variables object is required' });
-    }
-
-    const result = await createEmailFromTemplate(emailAgent, templateId, variables, recipients);
-    
-    if (result.success) {
-      res.json(result);
-    } else {
-      res.status(500).json({ error: result.error });
-    }
-  } catch (error) {
-    console.error('Template email creation error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Get all templates
-router.get('/templates', async (req, res) => {
-  try {
-    const result = await getAllTemplates();
-    
-    if (result.success) {
-      res.json(result);
-    } else {
-      res.status(500).json({ error: result.error });
-    }
-  } catch (error) {
-    console.error('Templates listing error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

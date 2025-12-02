@@ -4,19 +4,10 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   EmailMessage,
   EmailThread,
-  EmailTemplate,
   EmailDraft,
-  EmailComposition,
-  EmailReplyContext,
-  EmailAnalysisResult,
-  EmailGenerationResult,
   EmailStatus,
   EmailPriority,
   ThreadStatus,
-  TemplateCategory,
-  EmailTone,
-  EmailPurpose,
-  ReplyType
 } from '../types';
 
 // Storage paths
@@ -31,101 +22,6 @@ export const initializeEmailStorage = async (): Promise<void> => {
   await fs.ensureDir(THREADS_DIR);
   await fs.ensureDir(TEMPLATES_DIR);
   await fs.ensureDir(DRAFTS_DIR);
-  
-  // Create default templates if they don't exist
-  await createDefaultTemplates();
-  
-  console.log('Email storage initialized successfully');
-};
-
-// Create default email templates
-const createDefaultTemplates = async (): Promise<void> => {
-  const defaultTemplates: Partial<EmailTemplate>[] = [
-    {
-      name: 'Business Introduction',
-      subject: 'Introduction: {{senderName}} from {{companyName}}',
-      body: `Dear {{recipientName}},
-
-I hope this email finds you well. My name is {{senderName}} and I am {{position}} at {{companyName}}.
-
-{{introduction}}
-
-{{callToAction}}
-
-Best regards,
-{{senderName}}
-{{companyName}}`,
-      category: TemplateCategory.BUSINESS,
-      variables: [
-        { name: 'recipientName', type: 'string', required: true },
-        { name: 'senderName', type: 'string', required: true },
-        { name: 'companyName', type: 'string', required: true },
-        { name: 'position', type: 'string', required: true },
-        { name: 'introduction', type: 'string', required: true },
-        { name: 'callToAction', type: 'string', required: true }
-      ]
-    },
-    {
-      name: 'Follow Up',
-      subject: 'Following up on {{subject}}',
-      body: `Hi {{recipientName}},
-
-I wanted to follow up on {{previousContext}}.
-
-{{followUpContent}}
-
-Please let me know if you have any questions or need additional information.
-
-Best regards,
-{{senderName}}`,
-      category: TemplateCategory.FOLLOW_UP,
-      variables: [
-        { name: 'recipientName', type: 'string', required: true },
-        { name: 'senderName', type: 'string', required: true },
-        { name: 'subject', type: 'string', required: true },
-        { name: 'previousContext', type: 'string', required: true },
-        { name: 'followUpContent', type: 'string', required: true }
-      ]
-    },
-    {
-      name: 'Thank You',
-      subject: 'Thank you for {{reason}}',
-      body: `Dear {{recipientName}},
-
-Thank you for {{reason}}. {{gratitudeMessage}}
-
-{{nextSteps}}
-
-I look forward to {{futureInteraction}}.
-
-Warm regards,
-{{senderName}}`,
-      category: TemplateCategory.THANK_YOU,
-      variables: [
-        { name: 'recipientName', type: 'string', required: true },
-        { name: 'senderName', type: 'string', required: true },
-        { name: 'reason', type: 'string', required: true },
-        { name: 'gratitudeMessage', type: 'string', required: true },
-        { name: 'nextSteps', type: 'string', required: false },
-        { name: 'futureInteraction', type: 'string', required: true }
-      ]
-    }
-  ];
-
-  for (const template of defaultTemplates) {
-    const templateId = uuidv4();
-    const fullTemplate: EmailTemplate = {
-      id: templateId,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      ...template as EmailTemplate
-    };
-    
-    const templatePath = path.join(TEMPLATES_DIR, `${templateId}.json`);
-    if (!(await fs.pathExists(templatePath))) {
-      await fs.writeJson(templatePath, fullTemplate, { spaces: 2 });
-    }
-  }
 };
 
 // Create email metadata
@@ -250,81 +146,6 @@ export const deleteEmailDraft = async (draftId: string): Promise<boolean> => {
     console.error('Error deleting draft:', error);
     return false;
   }
-};
-
-// Save email template
-export const saveEmailTemplate = async (template: EmailTemplate): Promise<void> => {
-  const templatePath = path.join(TEMPLATES_DIR, `${template.id}.json`);
-  await fs.writeJson(templatePath, template, { spaces: 2 });
-};
-
-// Load email template
-export const loadEmailTemplate = async (templateId: string): Promise<EmailTemplate | null> => {
-  try {
-    const templatePath = path.join(TEMPLATES_DIR, `${templateId}.json`);
-    if (await fs.pathExists(templatePath)) {
-      return await fs.readJson(templatePath);
-    }
-    return null;
-  } catch (error) {
-    console.error('Error loading template:', error);
-    return null;
-  }
-};
-
-// List all email templates
-export const listEmailTemplates = async (): Promise<EmailTemplate[]> => {
-  try {
-    const files = await fs.readdir(TEMPLATES_DIR);
-    const jsonFiles = files.filter(file => file.endsWith('.json'));
-    
-    const templates: EmailTemplate[] = [];
-    for (const file of jsonFiles) {
-      try {
-        const template = await fs.readJson(path.join(TEMPLATES_DIR, file));
-        templates.push(template);
-      } catch (error) {
-        console.error(`Error reading template file ${file}:`, error);
-      }
-    }
-    
-    return templates.sort((a, b) => a.name.localeCompare(b.name));
-  } catch (error) {
-    console.error('Error listing templates:', error);
-    return [];
-  }
-};
-
-// Apply template variables
-export const applyTemplateVariables = (
-  template: string,
-  variables: Record<string, any>
-): string => {
-  let result = template;
-  
-  // Replace {{variableName}} with actual values
-  Object.entries(variables).forEach(([key, value]) => {
-    const regex = new RegExp(`{{${key}}}`, 'g');
-    result = result.replace(regex, String(value || ''));
-  });
-  
-  return result;
-};
-
-// Validate template variables
-export const validateTemplateVariables = (
-  template: EmailTemplate,
-  variables: Record<string, any>
-): { valid: boolean; missingRequired: string[] } => {
-  const requiredVars = template.variables.filter(v => v.required);
-  const missingRequired = requiredVars
-    .filter(v => !variables[v.name] || variables[v.name] === '')
-    .map(v => v.name);
-  
-  return {
-    valid: missingRequired.length === 0,
-    missingRequired
-  };
 };
 
 // Create email thread

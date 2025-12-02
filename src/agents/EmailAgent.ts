@@ -1,38 +1,20 @@
 import { AgentState, createAgent, createResponse, processWithLLM } from './BaseAgent.js';
 import { 
   initializeEmailStorage,
-  createEmailMetadata,
-  saveEmailMessage,
-  loadEmailMessage,
   saveEmailDraft,
   loadEmailDraft,
   listEmailDrafts,
   deleteEmailDraft,
-  saveEmailTemplate,
-  loadEmailTemplate,
-  listEmailTemplates,
-  applyTemplateVariables,
-  validateTemplateVariables,
-  createEmailThread,
-  saveEmailThread,
-  loadEmailThread
 } from '../services/emailProcessor.js';
 import {
   EmailMessage,
   EmailDraft,
   EmailTemplate,
-  EmailThread,
   EmailComposition,
   EmailReplyContext,
   EmailAnalysisResult,
-  EmailGenerationResult,
-  EmailStatus,
-  EmailPriority,
-  EmailTone,
-  EmailPurpose,
   BaseAgentResponse,
   ReplyType,
-  TemplateCategory
 } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -68,10 +50,15 @@ export const composeEmail = async (
     - Include proper greeting and closing
     - Structure the email logically
     - DO NOT use em dashes and DO NOT start with I hope this email finds you well.
-    - Be authentic
-    - Do not use cliches
     - Use short phrases
     - Do not make the email unnecessarily long
+    - I have a different writing style than most people, so be sure to adapt to that:
+    * Use short sentences, instead of: "Thank you for your email! Here is the info you wanted..." use "Here's the info you wanted."
+    * What you should know about the recepients:
+    * 1) They are busy professionals who appreciate brevity and clarity.
+    * 2) They value directness and actionable information.
+    * 3) Their communication style is short and to the point, without unnecessary words.
+    * $) Avoid overly formal language; keep it professional yet approachable.
     ${composition.context ? `- Context: ${composition.context}` : ''}`;
   
     const userPrompt = `Write an email with the following requirements:
@@ -134,15 +121,20 @@ export const generateEmailReply = async (
     - Tone: ${replyContext.tone}
     - Reply type: ${replyContext.replyType}
     - ${replyContext.includeOriginal ? 'Include reference to original message' : 'Do not quote original message'}
-    - Be concise and professional
-    - Address all points raised in the original email
+    - Keep it concise and professional
+    - Include proper greeting and closing
     - Structure the email logically
     - DO NOT use em dashes and DO NOT start with I hope this email finds you well.
-    - Be authentic
-    - Do not use cliches
-    - Do not use the word "insights"
     - Use short phrases
     - Do not make the email unnecessarily long
+    - I have a different writing style than most people, so be sure to adapt to that:
+    * Use short sentences, instead of: "Thank you for your email! Here is the info you wanted..." use "Here's the info you wanted."
+    * What you should know about the recepients:
+    * 1) They are busy professionals who appreciate brevity and clarity.
+    * 2) They value directness and actionable information.
+    * 3) Their communication style is short and to the point, without unnecessary words.
+    * $) Avoid overly formal language; keep it professional yet approachable.
+
     ${replyContext.customInstructions ? `- Additional instructions: ${replyContext.customInstructions}` : ''}`;
 
     const userPrompt = `Generate a reply to this email:
@@ -323,91 +315,6 @@ export const removeDraft = async (
       false,
       false,
       error instanceof Error ? error.message : 'Failed to delete draft'
-    );
-  }
-};
-
-// Create email from template
-export const createEmailFromTemplate = async (
-  agent: AgentState,
-  templateId: string,
-  variables: Record<string, any>,
-  recipients: string[]
-): Promise<BaseAgentResponse<EmailDraft>> => {
-  const startTime = Date.now();
-
-  try {
-    // Load template
-    const template = await loadEmailTemplate(templateId);
-    
-    if (!template) {
-      return createResponse<EmailDraft>(
-        false,
-        undefined,
-        'Template not found',
-        Date.now() - startTime
-      );
-    }
-
-    // Validate required variables
-    const validation = validateTemplateVariables(template, variables);
-    if (!validation.valid) {
-      return createResponse<EmailDraft>(
-        false,
-        undefined,
-        `Missing required variables: ${validation.missingRequired.join(', ')}`,
-        Date.now() - startTime
-      );
-    }
-
-    // Apply template variables
-    const subject = applyTemplateVariables(template.subject, variables);
-    const body = applyTemplateVariables(template.body, variables);
-
-    // Create draft
-    const draft: EmailDraft = {
-      id: uuidv4(),
-      subject,
-      body,
-      to: recipients,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      templateId,
-      variables
-    };
-
-    await saveEmailDraft(draft);
-
-    return createResponse(
-      true,
-      draft,
-      undefined,
-      Date.now() - startTime
-    );
-
-  } catch (error) {
-    console.error('Template email creation error:', error);
-    return createResponse<EmailDraft>(
-      false,
-      undefined,
-      error instanceof Error ? error.message : 'Failed to create email from template',
-      Date.now() - startTime
-    );
-  }
-};
-
-// Get all email templates
-export const getAllTemplates = async (): Promise<BaseAgentResponse<EmailTemplate[]>> => {
-  try {
-    const templates = await listEmailTemplates();
-    return createResponse(true, templates);
-    
-  } catch (error) {
-    console.error('Error listing templates:', error);
-    return createResponse<EmailTemplate[]>(
-      false,
-      undefined,
-      error instanceof Error ? error.message : 'Failed to list templates'
     );
   }
 };
