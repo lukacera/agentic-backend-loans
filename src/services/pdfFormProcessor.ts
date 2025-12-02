@@ -7,7 +7,7 @@ import {
   FormFillingRequest, 
   FormFillingResponse,
   FormAnalysisResult 
-} from '../types/pdfForms.js';
+} from '../types';
 
 // Initialize directories
 const TEMPLATES_DIR = path.join(process.cwd(), 'templates');

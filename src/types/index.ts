@@ -277,6 +277,53 @@ export enum EmailPurpose {
 }
 
 // ==============================
+// SBA APPLICATION TYPES
+// ==============================
+
+export interface SBAApplicationData {
+  creditScore: number;
+  annualRevenue: number;
+  yearsInBusiness: number;
+}
+
+export interface SBAApplication {
+  _id?: string;
+  applicationId: string;
+  applicantData: SBAApplicationData;
+  status: ApplicationStatus;
+  documentsGenerated: boolean;
+  emailSent: boolean;
+  generatedDocuments: string[];
+  createdAt: Date;
+  updatedAt: Date;
+  bankEmail: string;
+}
+
+export enum ApplicationStatus {
+  SUBMITTED = 'submitted',
+  PROCESSING = 'processing',
+  DOCUMENTS_GENERATED = 'documents_generated',
+  SENT_TO_BANK = 'sent_to_bank',
+  UNDER_REVIEW = 'under_review',
+  APPROVED = 'approved',
+  REJECTED = 'rejected',
+  CANCELLED = 'cancelled'
+}
+
+export interface ApplicationSubmissionRequest {
+  creditScore: number;
+  annualRevenue: number;
+  yearsInBusiness: number;
+}
+
+export interface ApplicationResponse {
+  applicationId: string;
+  status: ApplicationStatus;
+  message: string;
+  documentsGenerated?: string[];
+}
+
+// ==============================
 // PDF FORM TYPES
 // ==============================
 

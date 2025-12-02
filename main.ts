@@ -7,7 +7,9 @@ import * as dotenv from 'dotenv';
 import cors from 'cors';
 import docsRouter from './src/routes/docs.js';
 import emailRouter from './src/routes/emails.js';
+import applicationsRouter from './src/routes/applications.js';
 import pollEmails from './src/services/poller.js';
+import mongoose from 'mongoose';
 
 // Load environment variables
 dotenv.config();
@@ -20,6 +22,17 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/torvely_ai';
+
+mongoose.connect(MONGODB_URI)
+  .then(async () => {
+    console.log('✅ Connected to MongoDB');
+  })
+  .catch((error) => {
+    console.error('❌ MongoDB connection error:', error);
+    process.exit(1);
+  });
+  
 pollEmails(); // Start the email polling service
 
 // Initialize the LangChain components using functional approach
@@ -85,6 +98,7 @@ app.get('/health', (req, res) => {
 // Agent routes
 app.use('/api/docs', docsRouter);
 app.use('/api/emails', emailRouter);
+app.use('/api/applications', applicationsRouter);
 
 app.post('/api/chat', async (req, res) => {
   try {
