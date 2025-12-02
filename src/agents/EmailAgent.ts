@@ -70,6 +70,7 @@ export const composeEmail = async (
     - DO NOT use em dashes and DO NOT start with I hope this email finds you well.
     - Be authentic
     - Do not use cliches
+    - Use short phrases
     - Do not make the email unnecessarily long
     ${composition.context ? `- Context: ${composition.context}` : ''}`;
   

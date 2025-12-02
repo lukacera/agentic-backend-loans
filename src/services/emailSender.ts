@@ -22,6 +22,8 @@ export async function sendEmail({ to, subject, text, html, from, attachments }:
       attachments
     };
 
+    console.log('Sending email with the following details:', JSON.stringify(msg, null, 2));
+
     return sgMail
       //@ts-ignore
       .send(msg)

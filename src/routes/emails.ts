@@ -57,7 +57,6 @@ router.post('/compose', async (req, res) => {
     composition.purpose = composition.purpose || EmailPurpose.INQUIRY;
 
     const result = await composeEmail(emailAgent, composition);
-    
     if (result.success && result.data) {
       try {
         // Send the composed email using the available sendEmail function
@@ -65,7 +64,7 @@ router.post('/compose', async (req, res) => {
           to: Array.isArray(result.data.to) ? result.data.to : [result.data.to],
           subject: result.data.subject,
           text: result.data.body,
-          html: `<pre>${result.data.body}</pre>`
+          html: `${result.data.body}`
         });
         
         res.json({
