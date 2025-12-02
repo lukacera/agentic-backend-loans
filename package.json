@@ -32,7 +32,9 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "fs-extra": "^11.3.2",
+    "imap": "^0.8.19",
     "langchain": "^1.1.1",
+    "mailparser": "^3.9.0",
     "mammoth": "^1.11.0",
     "marked": "^17.0.1",
     "multer": "^2.0.2",
@@ -45,6 +47,8 @@
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.5",
+    "@types/imap": "^0.8.42",
+    "@types/mailparser": "^3.4.6",
     "@types/node": "^24.10.1",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3"

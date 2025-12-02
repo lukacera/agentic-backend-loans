@@ -1,45 +1,57 @@
 import dotenv from "dotenv";
-import sgMail from '@sendgrid/mail';
+import nodemailer from "nodemailer";
 
 dotenv.config();
 
-sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
-
-export async function sendEmail({ to, subject, text, html, from, attachments }: 
-  { to: string[], subject: string, text?: string, html?: string, from?: string, attachments?: Array<{
+export async function sendEmail({ 
+  to, 
+  subject, 
+  text, 
+  html, 
+  from, 
+  attachments 
+}: { 
+  to: string[], 
+  subject: string, 
+  text?: string, 
+  html?: string, 
+  from?: string, 
+  attachments?: Array<{
     content: string;
     filename: string;
     type: string;
     disposition: string;
-  }> }) {
+  }> 
+}) {
 
-    const msg = {
-      from: from || `team@salestorvely.com`,
-      to,
-      subject,
-      text,
-      html,
-      attachments
-    };
+  // Create transporter using SMTP
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,       // e.g., smtp.gmail.com
+    port: Number(process.env.SMTP_PORT) || 587, // 465 for SSL, 587 for TLS
+    secure: process.env.SMTP_SECURE === 'true', // true for 465, false for 587
+    auth: {
+      user: process.env.SMTP_USER,     // your email
+      pass: process.env.SMTP_PASS      // your email password or app password
+    }
+  });
 
-    console.log('Sending email with the following details:', JSON.stringify(msg, null, 2));
+  const mailOptions = {
+    from: from || `team@salestorvely.com`,
+    to: to.join(', '),   // Nodemailer wants a comma-separated string
+    subject,
+    text,
+    html,
+    attachments
+  };
 
-    return sgMail
-      //@ts-ignore
-      .send(msg)
-      .then(() => {
-        console.log('Email sent successfully')
-      })
-      .catch((error) => {
-        if (error.response) {
-          if (error.response.body?.errors) {
-            console.error('Specific Errors:');
-            error.response.body.errors.forEach((err: any, index: number) => {
-              console.error(`Error ${index + 1}:`, JSON.stringify(err, null, 2));
-            });
-          }
-        }
-        console.error('=== END ERROR DETAILS ===');
-        throw error; // Re-throw so calling code knows it failed
-      })
+  console.log('Sending email with the following details:', JSON.stringify(mailOptions, null, 2));
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Email sent successfully:', info.messageId);
+    return info;
+  } catch (error) {
+    console.error('Error sending email:', error);
+    throw error;
+  }
 }

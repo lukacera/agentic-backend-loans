@@ -7,6 +7,7 @@ import * as dotenv from 'dotenv';
 import cors from 'cors';
 import docsRouter from './src/routes/docs.js';
 import emailRouter from './src/routes/emails.js';
+import pollEmails from './src/services/poller.js';
 
 // Load environment variables
 dotenv.config();
@@ -18,6 +19,8 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+pollEmails(); // Start the email polling service
 
 // Initialize the LangChain components using functional approach
 const createLLM = () => {
