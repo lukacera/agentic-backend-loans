@@ -46,7 +46,9 @@ export const composeEmail = async (
     Guidelines:
     - Use appropriate tone: ${composition.tone}
     - Purpose: ${composition.purpose}
-    - Keep it concise and professional
+    - Maximum 3-4 sentences for simple replies
+    - One sentence per paragraph when possible
+    - Skip formalities unless the sender used them first
     - Include proper greeting and closing
     - Structure the email logically
     - DO NOT use em dashes and DO NOT start with I hope this email finds you well.
@@ -121,7 +123,9 @@ export const generateEmailReply = async (
     - Tone: ${replyContext.tone}
     - Reply type: ${replyContext.replyType}
     - ${replyContext.includeOriginal ? 'Include reference to original message' : 'Do not quote original message'}
-    - Keep it concise and professional
+    - Maximum 3-4 sentences for simple replies
+- One sentence per paragraph when possible
+- Skip formalities unless the sender used them first
     - Include proper greeting and closing
     - Structure the email logically
     - DO NOT use em dashes and DO NOT start with I hope this email finds you well.
