@@ -5,10 +5,10 @@ import { StringOutputParser } from '@langchain/core/output_parsers';
 import { RunnableSequence } from '@langchain/core/runnables';
 import * as dotenv from 'dotenv';
 import cors from 'cors';
-import docsRouter from './src/routes/docs.js';
-import emailRouter from './src/routes/emails.js';
-import applicationsRouter from './src/routes/applications.js';
-import pollEmails from './src/services/poller.js';
+import docsRouter from './routes/docs.js';
+import emailRouter from './routes/emails.js';
+import applicationsRouter from './routes/applications.js';
+import pollEmails from './services/poller.js';
 import mongoose from 'mongoose';
 
 // Load environment variables
