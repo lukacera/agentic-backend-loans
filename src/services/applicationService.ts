@@ -6,7 +6,6 @@ import {
   SBAApplicationData, 
   ApplicationStatus, 
   ApplicationResponse,
-  PDFFormData 
 } from '../types/index.js';
 import { sendEmail } from './emailSender.js';
 import { composeEmail, createEmailAgent } from '../agents/EmailAgent.js';
@@ -38,7 +37,7 @@ export const createApplication = async (
       documentsGenerated: false,
       emailSent: false,
       generatedDocuments: [],
-      bankEmail: 'lukaceranic38@gmail.com'
+      bankEmail: process.env.BANK_EMAIL || 'lukaceranic38@gmail.com'
     });
     
     await application.save();
