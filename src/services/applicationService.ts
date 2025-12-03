@@ -122,7 +122,6 @@ const generateSBADocuments = async (
       try {
         // Extract form fields from the PDF template
         const formAnalysis = await extractFormFields(templatePath);
-        console.log(`Extracted fields for ${formName}:`, formAnalysis.fields);
         // Create document agent for AI processing
         const documentAgent = createDocumentAgent();
         
