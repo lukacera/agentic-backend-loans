@@ -169,21 +169,22 @@ const sendApplicationEmail = async (
   try {
     
     // Prepare email attachments
-    const attachments = [];
+    // const attachments = [];
     
-    for (const docPath of documentPaths) {
-      if (await fs.pathExists(docPath)) {
-        const fileContent = await fs.readFile(docPath);
-        const fileName = path.basename(docPath);
+    // TODO: Fix this; when they are sent in the current state, PDF readers say they are corrupted
+    // for (const docPath of documentPaths) {
+    //   if (await fs.pathExists(docPath)) {
+    //     const fileContent = await fs.readFile(docPath);
+    //     const fileName = path.basename(docPath);
         
-        attachments.push({
-          content: fileContent.toString('base64'),
-          filename: fileName,
-          type: 'application/pdf',
-          disposition: 'attachment'
-        });
-      }
-    }
+    //     attachments.push({
+    //       content: fileContent.toString('base64'),
+    //       filename: fileName,
+    //       type: 'application/pdf',
+    //       disposition: 'attachment'
+    //     });
+    //   }
+    // }
     
     // Generate professional email content using EmailAgent
     const emailAgent = createEmailAgent();
@@ -212,7 +213,7 @@ const sendApplicationEmail = async (
         subject: emailResult.data.subject,
         html: emailResult.data.body,
         text: emailResult.data.body.replace(/<[^>]*>/g, ''), // Strip HTML for text version
-        attachments
+        // attachments
       });
       
       console.log(`Application email sent successfully for ${application.applicationId}`);
