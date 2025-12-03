@@ -4,7 +4,6 @@ import {
   initializeEmailAgent,
   composeEmail,
   generateEmailReply,
-  analyzeEmail,
   getEmailAgentCapabilities
 } from '../agents/EmailAgent.js';
 import { getAgentStatus } from '../agents/BaseAgent.js';
@@ -123,34 +122,6 @@ router.post('/reply', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-
-// Analyze email content
-router.post('/analyze', async (req, res) => {
-  try {
-    const { emailId } = req.body;
-    
-    if (!emailId) {
-      return res.status(400).json({ error: 'Email ID is required' });
-    }
-
-    const email = await loadEmailMessage(emailId);
-    if (!email) {
-      return res.status(404).json({ error: 'Email not found' });
-    }
-
-    const result = await analyzeEmail(emailAgent, email);
-    
-    if (result.success) {
-      res.json(result);
-    } else {
-      res.status(500).json({ error: result.error });
-    }
-  } catch (error) {
-    console.error('Email analysis error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
 
 // Create and save email message (for testing/demo purposes)
 router.post('/messages', async (req, res) => {

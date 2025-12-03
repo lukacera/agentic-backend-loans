@@ -281,6 +281,8 @@ export enum EmailPurpose {
 // ==============================
 
 export interface SBAApplicationData {
+  name: string;
+  businessPhoneNumber: string;
   creditScore: number;
   annualRevenue: number;
   yearsInBusiness: number;
@@ -311,6 +313,8 @@ export enum ApplicationStatus {
 }
 
 export interface ApplicationSubmissionRequest {
+  name: string;
+  businessPhoneNumber: string;
   creditScore: number;
   annualRevenue: number;
   yearsInBusiness: number;

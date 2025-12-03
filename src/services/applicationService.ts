@@ -8,6 +8,10 @@ import {
   ApplicationResponse,
   PDFFormData 
 } from '../types/index.js';
+import { sendEmail } from './emailSender.js';
+import { composeEmail, createEmailAgent } from '../agents/EmailAgent.js';
+import { createDocumentAgent } from '../agents/DocumentAgent.js';
+import { fillPDFForm, mapDataWithAI, extractFormFields } from './pdfFormProcessor.js';
 
 const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
 const GENERATED_DIR = path.join(process.cwd(), 'generated');
@@ -101,9 +105,6 @@ const generateSBADocuments = async (
   const generatedFiles: string[] = [];
   
   try {
-    const { createDocumentAgent } = await import('../agents/DocumentAgent.js');
-    const { extractFormFields, fillPDFForm } = await import('./pdfFormProcessor.js');
-    
     const sbaForms = ['SBAForm1919.pdf', 'SBAForm413.pdf'];
     
     for (const formName of sbaForms) {
@@ -117,23 +118,38 @@ const generateSBADocuments = async (
         continue;
       }
       
-      // Map applicant data to form fields
-      const formData = mapDataToSBAForm(applicantData, formName);
-      
-      // Fill the PDF form
-      const fillResult = await fillPDFForm({
-        templatePath,
-        data: formData,
-        outputFileName,
-        aiAssist: true, // Use AI to help map fields intelligently
-        customInstructions: `This is an SBA loan application for a business with ${applicantData.yearsInBusiness} years in operation, ${applicantData.annualRevenue} annual revenue, and ${applicantData.creditScore} credit score. Fill all relevant fields appropriately.`
-      });
-      
-      if (fillResult.success && fillResult.outputPath) {
-        generatedFiles.push(fillResult.outputPath);
-        console.log(`Generated document: ${outputFileName}`);
-      } else {
-        console.error(`Failed to generate ${formName}:`, fillResult.error);
+      try {
+        // Extract form fields from the PDF template
+        const formAnalysis = await extractFormFields(templatePath);
+        
+        // Create document agent for AI processing
+        const documentAgent = createDocumentAgent();
+        
+        // Map applicant data to form fields using AI
+        const formData = await mapDataWithAI(
+          formAnalysis.fields,
+          applicantData,
+          documentAgent,
+          `This is an SBA loan application form (${formName}). Map the business application data to the appropriate form fields.`
+        );
+        
+        // Fill the PDF form
+        const fillResult = await fillPDFForm(
+          templatePath,
+          formData,
+          outputFileName
+        );
+        
+        if (fillResult.success && fillResult.outputPath) {
+          generatedFiles.push(fillResult.outputPath);
+          console.log(`Generated document: ${outputFileName}`);
+        } else {
+          console.error(`Failed to generate ${formName}:`, fillResult.error);
+        }
+        
+      } catch (formError) {
+        console.error(`Failed to process ${formName}:`, formError);
+        // Continue to next form instead of breaking the entire process
       }
     }
     
@@ -145,54 +161,12 @@ const generateSBADocuments = async (
   }
 };
 
-// Map application data to SBA form fields
-const mapDataToSBAForm = (applicantData: SBAApplicationData, formName: string): PDFFormData => {
-  const baseData: PDFFormData = {
-    // Common fields that might appear in SBA forms
-    creditScore: applicantData.creditScore,
-    annualRevenue: applicantData.annualRevenue,
-    yearsInBusiness: applicantData.yearsInBusiness,
-    
-    // Derived fields
-    monthlyRevenue: Math.round(applicantData.annualRevenue / 12),
-    businessEstablished: new Date().getFullYear() - applicantData.yearsInBusiness,
-    
-    // Standard application info
-    applicationDate: new Date().toLocaleDateString(),
-    submissionDate: new Date().toISOString().split('T')[0]
-  };
-  
-  // Form-specific field mapping
-  if (formName.includes('1919')) {
-    return {
-      ...baseData,
-      // Form 1919 specific fields
-      loanAmount: Math.min(applicantData.annualRevenue * 0.25, 500000), // Estimate loan amount
-      businessType: 'Corporation', // Default for now
-      naicsCode: '000000' // Default placeholder
-    };
-  }
-  
-  if (formName.includes('413')) {
-    return {
-      ...baseData,
-      // Form 413 specific fields  
-      personalGuarantee: true,
-      collateralOffered: applicantData.annualRevenue > 100000
-    };
-  }
-  
-  return baseData;
-};
-
 // Send application email with documents
 const sendApplicationEmail = async (
   application: ApplicationDocument,
   documentPaths: string[]
 ): Promise<void> => {
   try {
-    const { createEmailAgent, composeEmail } = await import('../agents/EmailAgent.js');
-    const { sendEmail } = await import('./emailSender.js');
     
     // Prepare email attachments
     const attachments = [];
@@ -217,7 +191,7 @@ const sendApplicationEmail = async (
     const emailComposition = {
       recipients: [application.bankEmail],
       subject: `SBA Loan Application Submission - Application ID: ${application.applicationId}`,
-      purpose: 'PROPOSAL' as any,
+      purpose: 'NEW LOAN APPLICATION' as any,
       tone: 'PROFESSIONAL' as any,
       keyPoints: [
         `New SBA loan application for business with ${application.applicantData.yearsInBusiness} years of operation`,
@@ -226,7 +200,7 @@ const sendApplicationEmail = async (
         'All required SBA forms completed and attached',
         'Ready for review and processing'
       ],
-      context: 'SBA loan application submission with completed forms'
+      context: 'We are a tool which helps businesses apply for SBA loans by generating necessary documents and composing emails to banks. All needed info is there, if they need anything else, ask them. Be concise and professional.' 
     };
     
     const emailResult = await composeEmail(emailAgent, emailComposition);

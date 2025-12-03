@@ -2,13 +2,11 @@ import { AgentState, createAgent, createResponse, processWithLLM } from './BaseA
 import { 
   initializeEmailStorage,
   saveEmailDraft,
-} from '../services/emailProcessor.js';
+} from '../services/emailProcessor';
 import {
-  EmailMessage,
   EmailDraft,
   EmailComposition,
   EmailReplyContext,
-  EmailAnalysisResult,
   BaseAgentResponse,
   ReplyType,
 } from '../types';
@@ -217,82 +215,6 @@ export const generateEmailReply = async (
       false,
       undefined,
       error instanceof Error ? error.message : 'Failed to generate reply',
-      Date.now() - startTime
-    );
-  }
-};
-
-// Analyze email content with AI
-export const analyzeEmail = async (
-  agent: AgentState,
-  email: EmailMessage
-): Promise<BaseAgentResponse<EmailAnalysisResult>> => {
-  const startTime = Date.now();
-
-  try {
-    const systemPrompt = `You are an expert email analyzer. Analyze the given email and provide structured insights.
-    
-    Analyze for:
-    - Sentiment (positive, negative, neutral)
-    - Urgency level (low, medium, high)
-    - Intent and purpose
-    - Key topics mentioned
-    - Whether it requires a response
-    - Suggested actions
-    - Estimated response time needed
-    
-    Provide analysis in a structured format.`;
-
-    const userPrompt = `Analyze this email:
-    
-    Subject: ${email.subject}
-    From: ${email.from}
-    To: ${email.to.join(', ')}
-    Body: ${email.body}
-    
-    Provide the analysis as JSON with keys: sentiment, urgency, intent, keyTopics, suggestedActions, requiresResponse, estimatedResponseTime`;
-
-    const analysisText = await processWithLLM(agent, systemPrompt, userPrompt);
-    
-    // Parse AI response (simplified - in production, you'd want better error handling)
-    let analysis: EmailAnalysisResult;
-    try {
-      const parsed = JSON.parse(analysisText);
-      analysis = {
-        sentiment: parsed.sentiment || 'neutral',
-        urgency: parsed.urgency || 'medium',
-        intent: parsed.intent || 'General communication',
-        keyTopics: parsed.keyTopics || [],
-        suggestedActions: parsed.suggestedActions || [],
-        requiresResponse: parsed.requiresResponse || false,
-        estimatedResponseTime: parsed.estimatedResponseTime || '24 hours'
-      };
-    } catch {
-      // Fallback if JSON parsing fails
-      analysis = {
-        sentiment: 'neutral',
-        urgency: 'medium',
-        intent: 'General communication',
-        keyTopics: [],
-        suggestedActions: ['Review email content'],
-        requiresResponse: true,
-        estimatedResponseTime: '24 hours'
-      };
-    }
-
-    return createResponse(
-      true,
-      analysis,
-      undefined,
-      Date.now() - startTime
-    );
-
-  } catch (error) {
-    console.error('Email analysis error:', error);
-    return createResponse<EmailAnalysisResult>(
-      false,
-      undefined,
-      error instanceof Error ? error.message : 'Failed to analyze email',
       Date.now() - startTime
     );
   }
