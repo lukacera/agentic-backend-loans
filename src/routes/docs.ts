@@ -5,14 +5,7 @@ import * as fs from 'fs-extra';
 import { 
   createDocumentAgent,
   initializeDocumentAgent,
-  processUploadedDocument,
-  getProcessedDocument,
-  getAllDocuments,
-  removeDocument,
-  reprocessDocument,
-  getDocumentAgentCapabilities
 } from '../agents/DocumentAgent.js';
-import { getAgentStatus } from '../agents/BaseAgent.js';
 import { PDFFormData, SupportedMimeTypes } from '../types';
 import { 
   extractFormFields, 
@@ -139,7 +132,7 @@ router.post('/forms/:filename/auto-fill', async (req, res) => {
       documentAgent,
       customInstructions
     );
-    console.log('Mapped data for auto-fill:', mappedData);
+
     // Fill the form with mapped data
     const result = await fillPDFForm(templatePath, mappedData, outputFileName);
     

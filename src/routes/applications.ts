@@ -14,13 +14,13 @@ const router = express.Router();
 // POST /api/applications - Submit new SBA loan application
 router.post('/', async (req, res) => {
   try {
-    const { name, businessPhoneNumber, creditScore, annualRevenue, yearsInBusiness }: ApplicationSubmissionRequest = req.body;
+    const { name, businessName, businessPhoneNumber, creditScore, annualRevenue, yearsInBusiness }: ApplicationSubmissionRequest = req.body;
     
     // Validate required fields
-    if (!name || !businessPhoneNumber || !creditScore || !annualRevenue || !yearsInBusiness) {
+    if (!name || !businessName || !businessPhoneNumber || !creditScore || !annualRevenue || !yearsInBusiness) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: name, businessPhoneNumber, creditScore, annualRevenue, and yearsInBusiness are required'
+        error: 'Missing required fields: name, businessName, businessPhoneNumber, creditScore, annualRevenue, and yearsInBusiness are required'
       });
     }
     
@@ -29,6 +29,13 @@ router.post('/', async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'Name must be a non-empty string'
+      });
+    }
+    
+    if (typeof businessName !== 'string' || businessName.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Business name must be a non-empty string'
       });
     }
     
@@ -64,6 +71,7 @@ router.post('/', async (req, res) => {
     // Create application
     const result = await createApplication({
       name: name.trim(),
+      businessName: businessName.trim(),
       businessPhoneNumber: businessPhoneNumber.trim(),
       creditScore,
       annualRevenue,

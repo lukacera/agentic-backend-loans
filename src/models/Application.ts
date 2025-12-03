@@ -14,6 +14,21 @@ const sbaApplicationSchema = new Schema<ApplicationDocument>({
     index: true
   },
   applicantData: {
+    name: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    businessName: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    businessPhoneNumber: {
+      type: String,
+      required: true,
+      trim: true
+    },
     creditScore: {
       type: Number,
       required: true,

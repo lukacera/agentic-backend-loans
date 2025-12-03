@@ -66,7 +66,10 @@ const processApplicationAsync = async (application: ApplicationDocument): Promis
     await application.save();
     
     // Generate documents using DocumentAgent and form processor
-    const generatedDocuments = await generateSBADocuments(application.applicantData, application.applicationId);
+    const generatedDocuments = await generateSBADocuments(
+      application.applicantData, 
+      application.applicationId
+    );
     
     // Update application with generated documents
     application.generatedDocuments = generatedDocuments;
@@ -109,8 +112,7 @@ const generateSBADocuments = async (
     
     for (const formName of sbaForms) {
       const templatePath = path.join(TEMPLATES_DIR, formName);
-      const outputFileName = `${applicationId}_${formName}`;
-      const outputPath = path.join(GENERATED_DIR, outputFileName);
+      const outputFileName = `${applicantData.businessName}_${formName}`;
       
       // Check if template exists
       if (!await fs.pathExists(templatePath)) {
@@ -128,7 +130,11 @@ const generateSBADocuments = async (
         // Map applicant data to form fields using AI
         const formData = await mapDataWithAI(
           formAnalysis.fields,
-          applicantData,
+          {...applicantData, 
+            loanType: "7(a) loan", 
+            businessType: "LLC",
+            infoCurrentDate: new Date().toLocaleDateString()
+          },
           documentAgent,
           `This is an SBA loan application form (${formName}). Map the business application data to the appropriate form fields.`
         );
@@ -142,7 +148,15 @@ const generateSBADocuments = async (
         
         if (fillResult.success && fillResult.outputPath) {
           generatedFiles.push(fillResult.outputPath);
-          console.log(`Generated document: ${outputFileName}`);
+          console.log(`Generated document: ${outputFileName} at path: ${fillResult.outputPath}`);
+          
+          // Verify file exists and check size
+          if (await fs.pathExists(fillResult.outputPath)) {
+            const stats = await fs.stat(fillResult.outputPath);
+            console.log(`Document file verified: ${stats.size} bytes`);
+          } else {
+            console.error(`Generated document file not found at path: ${fillResult.outputPath}`);
+          }
         } else {
           console.error(`Failed to generate ${formName}:`, fillResult.error);
         }
@@ -153,6 +167,7 @@ const generateSBADocuments = async (
       }
     }
     
+    console.log(`Document generation completed. Generated ${generatedFiles.length} files:`, generatedFiles);
     return generatedFiles;
     
   } catch (error) {
@@ -167,24 +182,28 @@ const sendApplicationEmail = async (
   documentPaths: string[]
 ): Promise<void> => {
   try {
+    console.log(`Starting email sending process for application ${application.applicationId}`);
+    console.log(`Document paths received:`, documentPaths);
     
     // Prepare email attachments
-    // const attachments = [];
+    const attachments = [];
     
-    // TODO: Fix this; when they are sent in the current state, PDF readers say they are corrupted
-    // for (const docPath of documentPaths) {
-    //   if (await fs.pathExists(docPath)) {
-    //     const fileContent = await fs.readFile(docPath);
-    //     const fileName = path.basename(docPath);
+    for (const docPath of documentPaths) {
+      if (await fs.pathExists(docPath)) {
+        const fileName = path.basename(docPath);
         
-    //     attachments.push({
-    //       content: fileContent.toString('base64'),
-    //       filename: fileName,
-    //       type: 'application/pdf',
-    //       disposition: 'attachment'
-    //     });
-    //   }
-    // }
+        // Use file path directly - more efficient than base64 encoding
+        attachments.push({
+          filename: fileName,
+          path: docPath,
+          contentType: 'application/pdf'
+        });
+        
+        console.log(`Added attachment: ${fileName} from path: ${docPath}`);
+      } else {
+        console.warn(`Document file not found: ${docPath}`);
+      }
+    }
     
     // Generate professional email content using EmailAgent
     const emailAgent = createEmailAgent();
@@ -208,15 +227,18 @@ const sendApplicationEmail = async (
     
     if (emailResult.success && emailResult.data) {
       // Send the email with attachments
-      await sendEmail({
+      console.log(`Sending email to ${application.bankEmail} with ${attachments.length} attachments`);
+      
+      const emailInfo = await sendEmail({
         to: [application.bankEmail],
         subject: emailResult.data.subject,
         html: emailResult.data.body,
         text: emailResult.data.body.replace(/<[^>]*>/g, ''), // Strip HTML for text version
-        // attachments
+        attachments
       });
       
       console.log(`Application email sent successfully for ${application.applicationId}`);
+      console.log(`Email message ID: ${emailInfo.messageId}`);
     } else {
       throw new Error(`Failed to compose email: ${emailResult.error}`);
     }

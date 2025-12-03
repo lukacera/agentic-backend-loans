@@ -276,12 +276,9 @@ export enum EmailPurpose {
   APOLOGY = 'apology'
 }
 
-// ==============================
-// SBA APPLICATION TYPES
-// ==============================
-
 export interface SBAApplicationData {
   name: string;
+  businessName: string;
   businessPhoneNumber: string;
   creditScore: number;
   annualRevenue: number;
@@ -314,6 +311,7 @@ export enum ApplicationStatus {
 
 export interface ApplicationSubmissionRequest {
   name: string;
+  businessName: string;
   businessPhoneNumber: string;
   creditScore: number;
   annualRevenue: number;
