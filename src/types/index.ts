@@ -282,7 +282,7 @@ export interface SBAApplicationData {
   businessPhoneNumber: string;
   creditScore: number;
   annualRevenue: number;
-  yearsInBusiness: number;
+  yearFounded: number;
 }
 
 export interface SBAApplication {
@@ -315,7 +315,7 @@ export interface ApplicationSubmissionRequest {
   businessPhoneNumber: string;
   creditScore: number;
   annualRevenue: number;
-  yearsInBusiness: number;
+  yearFounded: number;
 }
 
 export interface ApplicationResponse {

@@ -14,12 +14,12 @@ async function pollEmails() {
       console.log(`Processing email from: ${email.from}, subject: ${email.subject}`);
 
       // GPT generates reply and optional flags
-      const { reply, flagForReview } = await handleEmail(email);
+      const { reply } = await handleEmail(email);
 
-      if (flagForReview) {
-        console.log('Email flagged for human review:', email.subject);
-        continue; // skip auto-reply
-      }
+      // if (flagForReview) {
+      //   console.log('Email flagged for human review:', email.subject);
+      //   continue; // skip auto-reply
+      // }
 
       // Send reply
       await sendEmail({

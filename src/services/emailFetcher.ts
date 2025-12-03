@@ -9,6 +9,7 @@ export interface FetchedEmail {
   messageId: string;
   inReplyTo?: string;
   references?: string[];
+  threadId?: string;
 }
 
 // Global connection state
@@ -84,17 +85,37 @@ async function connectToIMAP(): Promise<Imap> {
   });
 }
 
+// Helper function to compute thread ID from email headers
+function computeThreadId(messageId: string, inReplyTo?: string, references?: string[]): string {
+  // Use the first reference as thread ID, or inReplyTo, or messageId for new threads
+  if (inReplyTo) {
+    console.log(`Using inReplyTo as thread ID: ${inReplyTo}`);
+    return inReplyTo.replace(/[<>]/g, '');
+  }
+  if (references && references.length > 0) {
+    console.log(`Using first reference as thread ID: ${references[0]}`);
+    return references[0].replace(/[<>]/g, '');
+  }
+  
+  return messageId.replace(/[<>]/g, '');
+}
+
 async function parseEmailMessage(emailData: Buffer, seqno: number): Promise<FetchedEmail> {
   const parsed = await simpleParser(emailData);
   
+  const messageId = parsed.messageId || `unknown-${seqno}-${Date.now()}`;
+  const inReplyTo = parsed.inReplyTo || undefined;
+  const references = Array.isArray(parsed.references) ? parsed.references : parsed.references ? [parsed.references] : [];
+  
   return {
-    messageId: parsed.messageId || `unknown-${seqno}-${Date.now()}`,
+    messageId,
     subject: parsed.subject || 'No Subject',
     from: parsed.from?.text || 'Unknown Sender',
     body: parsed.text || '',
     date: parsed.date || new Date(),
-    inReplyTo: parsed.inReplyTo || undefined,
-    references: Array.isArray(parsed.references) ? parsed.references : parsed.references ? [parsed.references] : []
+    inReplyTo,
+    references,
+    threadId: computeThreadId(messageId, inReplyTo, references)
   };
 }
 
@@ -107,7 +128,7 @@ async function fetchUnreadEmails(imap: Imap): Promise<FetchedEmail[]> {
       }
 
       // Search for unread emails
-      imap.search(['UNSEEN'], (searchErr: any, results: any) => {
+      imap.search(['UNSEEN'], (searchErr: any, results: number[]) => {        
         if (searchErr) {
           reject(searchErr);
           return;
@@ -117,7 +138,6 @@ async function fetchUnreadEmails(imap: Imap): Promise<FetchedEmail[]> {
           resolve([]);
           return;
         }
-
         console.log(`Found ${results.length} unread emails`);
 
         // Fetch the emails
@@ -137,7 +157,6 @@ async function fetchUnreadEmails(imap: Imap): Promise<FetchedEmail[]> {
             stream.on('data', (chunk: any) => {
               emailData = Buffer.concat([emailData, chunk]);
             });
-
             stream.once('end', async () => {
               try {
                 const fetchedEmail = await parseEmailMessage(emailData, seqno);
@@ -173,11 +192,94 @@ async function fetchUnreadEmails(imap: Imap): Promise<FetchedEmail[]> {
   });
 }
 
+// Fetch all emails with specific thread ID
+export async function fetchEmailsByThreadId(threadId: string): Promise<FetchedEmail[]> {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const imap = await connectToIMAP();
+      
+      imap.openBox('INBOX', true, (err: any, box: any) => { // true = read-only
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        // Search for emails with this thread ID in message-id, references, or in-reply-to
+        const searchCriteria = [['OR', ['HEADER', 'MESSAGE-ID', `<${threadId}>`], ['OR', ['HEADER', 'REFERENCES', threadId], ['HEADER', 'IN-REPLY-TO', `<${threadId}>`]]]];
+
+        imap.search(searchCriteria, (searchErr: any, results: any) => {
+          if (searchErr) {
+            reject(searchErr);
+            return;
+          }
+
+          if (!results || results.length === 0) {
+            resolve([]);
+            return;
+          }
+
+          console.log(`Found ${results.length} emails in thread: ${threadId}`);
+
+          const fetch = imap.fetch(results, {
+            bodies: '',
+            struct: true
+          });
+
+          const emails: FetchedEmail[] = [];
+          let processedCount = 0;
+
+          fetch.on('message', (msg: any, seqno: any) => {
+            let emailData: Buffer = Buffer.alloc(0);
+
+            msg.on('body', (stream: any) => {
+              stream.on('data', (chunk: any) => {
+                emailData = Buffer.concat([emailData, chunk]);
+              });
+
+              stream.once('end', async () => {
+                try {
+                  const fetchedEmail = await parseEmailMessage(emailData, seqno);
+                  emails.push(fetchedEmail);
+                } catch (parseError) {
+                  console.error('Error parsing thread email:', parseError);
+                } finally {
+                  processedCount++;
+                  
+                  if (processedCount === results.length) {
+                    // Sort by date for chronological order
+                    emails.sort((a, b) => a.date.getTime() - b.date.getTime());
+                    resolve(emails);
+                  }
+                }
+              });
+            });
+          });
+
+          fetch.once('error', (fetchErr: any) => {
+            reject(fetchErr);
+          });
+
+          fetch.once('end', () => {
+            if (processedCount === results.length) {
+              emails.sort((a, b) => a.date.getTime() - b.date.getTime());
+              resolve(emails);
+            }
+          });
+        });
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
 // Main export function that poller.ts expects
 export async function fetchEmails(): Promise<FetchedEmail[]> {
   try {
     const imap = await connectToIMAP();
-    return await fetchUnreadEmails(imap);
+    const unreadEmails = await fetchUnreadEmails(imap);
+    
+    return unreadEmails;
   } catch (error) {
     console.error('Error fetching emails:', error);
     throw error;

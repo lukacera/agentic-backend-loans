@@ -37,48 +37,48 @@ function convertToEmailMessage(fetchedEmail: FetchedEmail): EmailMessage {
 }
 
 // Check if email should be flagged for human review
-function shouldFlagForReview(email: FetchedEmail): boolean {
-  const body = email.body.toLowerCase();
-  const wordCount = email.body.split(/\s+/).length;
+// function shouldFlagForReview(email: FetchedEmail): boolean {
+//   const body = email.body.toLowerCase();
+//   const wordCount = email.body.split(/\s+/).length;
   
-  // Flag very long emails (over 200 words)
-  if (wordCount > 200) {
-    return true;
-  }
+//   // Flag very long emails (over 200 words)
+//   if (wordCount > 200) {
+//     return true;
+//   }
   
-  // Flag emails with complex/sensitive keywords
-  const sensitiveKeywords = [
-    'complaint', 'refund', 'cancel', 'legal', 'lawsuit', 'angry', 'furious',
-    'terrible', 'worst', 'horrible', 'disgusted', 'unacceptable', 'urgent',
-    'emergency', 'asap', 'immediately', 'contract', 'billing issue', 'payment problem'
-  ];
+//   // Flag emails with complex/sensitive keywords
+//   const sensitiveKeywords = [
+//     'complaint', 'refund', 'cancel', 'legal', 'lawsuit', 'angry', 'furious',
+//     'terrible', 'worst', 'horrible', 'disgusted', 'unacceptable', 'urgent',
+//     'emergency', 'asap', 'immediately', 'contract', 'billing issue', 'payment problem'
+//   ];
   
-  const hasSensitiveContent = sensitiveKeywords.some(keyword => 
-    body.includes(keyword)
-  );
+//   const hasSensitiveContent = sensitiveKeywords.some(keyword => 
+//     body.includes(keyword)
+//   );
   
-  if (hasSensitiveContent) {
-    return true;
-  }
+//   if (hasSensitiveContent) {
+//     return true;
+//   }
   
-  // Flag emails with multiple questions (complex inquiries)
-  const questionMarks = (email.body.match(/\?/g) || []).length;
-  if (questionMarks > 2) {
-    return true;
-  }
+//   // Flag emails with multiple questions (complex inquiries)
+//   const questionMarks = (email.body.match(/\?/g) || []).length;
+//   if (questionMarks > 2) {
+//     return true;
+//   }
   
-  // Flag emails that seem like they need human attention
-  const needsHumanKeywords = [
-    'speak to manager', 'human representative', 'real person', 'not automated',
-    'escalate', 'supervisor', 'manager', 'director'
-  ];
+//   // Flag emails that seem like they need human attention
+//   const needsHumanKeywords = [
+//     'speak to manager', 'human representative', 'real person', 'not automated',
+//     'escalate', 'supervisor', 'manager', 'director'
+//   ];
   
-  const needsHuman = needsHumanKeywords.some(keyword => 
-    body.includes(keyword)
-  );
+//   const needsHuman = needsHumanKeywords.some(keyword => 
+//     body.includes(keyword)
+//   );
   
-  return needsHuman;
-}
+//   return needsHuman;
+// }
 
 // Generate AI reply using existing email agent
 async function generateAIReply(email: FetchedEmail): Promise<string> {
@@ -116,13 +116,13 @@ export async function handleEmail(email: FetchedEmail): Promise<EmailHandlerResu
     console.log(`Analyzing email from ${email.from}: "${email.subject}"`);
     
     // Check if email should be flagged for human review
-    if (shouldFlagForReview(email)) {
-      console.log('Email flagged for human review due to complexity or sensitive content');
-      return {
-        reply: '',
-        flagForReview: true
-      };
-    }
+    // if (shouldFlagForReview(email)) {
+    //   console.log('Email flagged for human review due to complexity or sensitive content');
+    //   return {
+    //     reply: '',
+    //     flagForReview: true
+    //   };
+    // }
     
     // Generate AI reply for simple emails
     console.log('Generating AI reply for email...');

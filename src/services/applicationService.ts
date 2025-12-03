@@ -123,7 +123,7 @@ const generateSBADocuments = async (
       try {
         // Extract form fields from the PDF template
         const formAnalysis = await extractFormFields(templatePath);
-        
+        console.log(`Extracted fields for ${formName}:`, formAnalysis.fields);
         // Create document agent for AI processing
         const documentAgent = createDocumentAgent();
         
@@ -131,7 +131,7 @@ const generateSBADocuments = async (
         const formData = await mapDataWithAI(
           formAnalysis.fields,
           {...applicantData, 
-            loanType: "7(a) loan", 
+            "7(a) loan/04 loan/Surety Bonds1`": "7(a) loan", 
             businessType: "LLC",
             infoCurrentDate: new Date().toLocaleDateString()
           },
@@ -214,7 +214,7 @@ const sendApplicationEmail = async (
       purpose: 'NEW LOAN APPLICATION' as any,
       tone: 'PROFESSIONAL' as any,
       keyPoints: [
-        `New SBA loan application for business with ${application.applicantData.yearsInBusiness} years of operation`,
+        `New SBA loan application`,
         `Annual revenue: $${application.applicantData.annualRevenue.toLocaleString()}`,
         `Credit score: ${application.applicantData.creditScore}`,
         'All required SBA forms completed and attached',

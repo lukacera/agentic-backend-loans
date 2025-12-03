@@ -40,7 +40,7 @@ const sbaApplicationSchema = new Schema<ApplicationDocument>({
       required: true,
       min: 0
     },
-    yearsInBusiness: {
+    yearFounded: {
       type: Number,
       required: true,
       min: 0

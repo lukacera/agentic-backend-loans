@@ -23,11 +23,13 @@ app.use(cors({
     const allowedOrigins = [
       'http://localhost:3000',
       'http://localhost:5173',
-      'https://new-torvely-dashboard.vercel.app'
+      'https://new-torvely-dashboard.vercel.app',
+      "chrome-extension://oeaoefimiancojpimjmkigjdkpaenbdg"
     ];
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.log(`Blocked CORS request from origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   }
