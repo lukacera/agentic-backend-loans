@@ -45,6 +45,7 @@ export const createDocumentMetadata = (
 // Extract text from different file types
 export const extractTextFromPDF = async (filePath: string): Promise<{ text: string; pageCount: number }> => {
   const dataBuffer = await fs.readFile(filePath);
+  //@ts-expect-error false positive
   const data = await pdfParse(dataBuffer);
   return {
     text: data.text,
@@ -55,13 +56,6 @@ export const extractTextFromPDF = async (filePath: string): Promise<{ text: stri
 export const extractTextFromWord = async (filePath: string): Promise<string> => {
   const result = await mammoth.extractRawText({ path: filePath });
   return result.value;
-};
-
-export const extractTextFromMarkdown = async (filePath: string): Promise<string> => {
-  const content = await fs.readFile(filePath, 'utf-8');
-  // Convert markdown to plain text (remove markdown syntax)
-  const html = marked(content);
-  return html.replace(/<[^>]*>/g, ''); // Simple HTML tag removal
 };
 
 export const extractTextFromPlain = async (filePath: string): Promise<string> => {
@@ -78,12 +72,8 @@ export const extractText = async (filePath: string, mimeType: string): Promise<{
     case SupportedMimeTypes.DOCX:
       const wordText = await extractTextFromWord(filePath);
       return { text: wordText };
-    
-    case SupportedMimeTypes.MD:
-      const mdText = await extractTextFromMarkdown(filePath);
-      return { text: mdText };
-    
-    case SupportedMimeTypes.TXT:
+
+      case SupportedMimeTypes.TXT:
       const plainText = await extractTextFromPlain(filePath);
       return { text: plainText };
     
