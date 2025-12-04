@@ -250,7 +250,7 @@ const sendApplicationEmail = async (
 // Get application by ID
 export const getApplication = async (applicationId: string): Promise<ApplicationDocument | null> => {
   try {
-    return await Application.findOne({ applicationId }).exec();
+    return await Application.findById(applicationId).exec();
   } catch (error) {
     console.error('Error fetching application:', error);
     throw error;
