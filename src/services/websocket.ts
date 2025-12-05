@@ -12,16 +12,37 @@ const setupEventHandlers = (ioInstance: SocketIOServer): void => {
   ioInstance.on('connection', (socket) => {
     console.log('✅ Client connected:', socket.id);
 
+    // Automatically join the global room
+    socket.join('global');
+    console.log(`Socket ${socket.id} auto-joined room: global`);
+
     // Join specific rooms when client requests
     socket.on('join-room', (room: string) => {
       socket.join(room);
       console.log(`Socket ${socket.id} joined room: ${room}`);
+
+      // Send confirmation back to client
+      socket.emit('room-joined', { room, socketId: socket.id });
     });
 
     // Leave room
     socket.on('leave-room', (room: string) => {
       socket.leave(room);
       console.log(`Socket ${socket.id} left room: ${room}`);
+
+      // Send confirmation back to client
+      socket.emit('room-left', { room, socketId: socket.id });
+    });
+
+    // Request VAPI call status
+    socket.on('vapi-request-status', (callId: string) => {
+      console.log(`Socket ${socket.id} requested status for call: ${callId}`);
+      // This could be extended to query a database or cache for call status
+      socket.emit('vapi-status-response', {
+        callId,
+        message: 'Status request received',
+        timestamp: new Date().toISOString()
+      });
     });
 
     // Handle disconnection
@@ -96,8 +117,76 @@ export const broadcastVapiEvent = (
 
   const payload = createVapiPayload(message);
   const allRooms = rooms.includes('global') ? rooms : [...rooms, 'global'];
-
+  console.log('Broadcasting to rooms:', allRooms);
+  // Broadcast generic vapi-update event
   emitToRooms(io, 'vapi-update', payload, allRooms);
+
+  // Broadcast specific typed events based on message type
+  switch (message.type) {
+    case 'assistant-request':
+      emitToRooms(io, 'vapi-assistant-request', payload, allRooms);
+      break;
+
+    case 'conversation-update':
+      emitToRooms(io, 'vapi-conversation-update', {
+        ...payload,
+        messages: message.messages || [],
+        messagesCount: message.messages?.length || 0
+      }, allRooms);
+      break;
+
+    case 'transcript':
+      emitToRooms(io, 'vapi-transcript', {
+        ...payload,
+        transcript: message.transcript,
+        transcriptType: message.transcriptType,
+        role: message.role
+      }, allRooms);
+      break;
+
+    case 'end-of-call-report':
+      emitToRooms(io, 'vapi-call-ended', {
+        ...payload,
+        endedReason: message.endedReason,
+        duration: message.call?.duration,
+        status: message.status
+      }, allRooms);
+      break;
+
+    case 'speech-update':
+      emitToRooms(io, 'vapi-speech-update', payload, allRooms);
+      break;
+
+    case 'status-update':
+      emitToRooms(io, 'vapi-status-update', {
+        ...payload,
+        status: message.status
+      }, allRooms);
+      break;
+
+    case 'tool-calls':
+      emitToRooms(io, 'vapi-tool-calls', {
+        ...payload,
+        toolCalls: message.toolCallList || []
+      }, allRooms);
+      break;
+
+    case 'function-call':
+      emitToRooms(io, 'vapi-function-call', payload, allRooms);
+      break;
+
+    case 'hang':
+      emitToRooms(io, 'vapi-hang', payload, allRooms);
+      break;
+
+    case 'model-output':
+      emitToRooms(io, 'vapi-model-output', {
+        ...payload,
+        output: message.output
+      }, allRooms);
+      break;
+  }
+
   console.log(`📡 WebSocket broadcast: ${message.type} to rooms: ${allRooms.join(', ')}`);
 };
 
