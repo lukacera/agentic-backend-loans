@@ -1,4 +1,5 @@
 import express from 'express';
+import { createServer } from 'http';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { StringOutputParser } from '@langchain/core/output_parsers';
@@ -10,12 +11,17 @@ import emailRouter from './routes/emails.js';
 import applicationsRouter from './routes/applications.js';
 import pollEmails from './services/poller.js';
 import mongoose from 'mongoose';
+import websocketService from './services/websocket.js';
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
+const httpServer = createServer(app);
 const PORT = process.env.PORT || 3000;
+
+// Initialize WebSocket service
+websocketService.initialize(httpServer);
 
 // Middleware
 app.use(cors({
@@ -110,6 +116,93 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
+app.post('/vapi-ai', (req, res) => {
+  try {
+    const { message } = req.body;
+
+    console.log('Vapi webhook received:', message?.type || 'unknown');
+
+    if (!message || !message.type) {
+      return res.status(400).json({ error: 'Invalid webhook payload: missing message or type' });
+    }
+
+    const messageType = message.type;
+
+    // Determine which rooms to broadcast to
+    const rooms: string[] = ['global'];
+    if (message.call?.id) {
+      rooms.push(`call:${message.call.id}`);
+    }
+
+    console.log(rooms)
+    // Broadcast event to WebSocket clients
+    websocketService.broadcastVapiEvent(message, rooms);
+
+    // Handle only essential cases that require responses
+    switch (messageType) {
+      case 'assistant-request':
+        // REQUIRED: Return assistant configuration when call starts
+        return res.json({
+          assistant: {
+            firstMessage: "Hello! I'm your AI assistant. How can I help you today?",
+            model: {
+              provider: "openai",
+              model: "gpt-4o",
+              temperature: 0.7,
+              messages: [
+                {
+                  role: "system",
+                  content: "You are a helpful AI assistant for Torvely. You can help with general questions, provide information, and assist users with their needs. Be friendly, professional, and concise in your responses."
+                }
+              ]
+            },
+            voice: {
+              provider: "11labs",
+              voiceId: "rachel"
+            }
+          }
+        });
+
+      case 'conversation-update':
+        // Log conversation updates (broadcasted via WebSocket)
+        console.log('Conversation updated:', message.messages?.length, 'messages');
+        break;
+
+      case 'transcript':
+        // Log transcript updates (broadcasted via WebSocket)
+        console.log('Transcript:', message.transcript);
+        break;
+
+      case 'end-of-call-report':
+        // Log call summary
+        console.log('Call ended:', {
+          reason: message.endedReason,
+          duration: message.call?.duration
+        });
+        break;
+
+      default:
+        // All other events are just logged and broadcasted
+        console.log('Event:', messageType);
+        break;
+    }
+
+    // Standard response for informational events
+    res.json({
+      status: 'received',
+      type: messageType,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Vapi webhook error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Failed to process webhook'
+    });
+  }
+});
+
 // Agent routes
 app.use('/api/docs', docsRouter);
 app.use('/api/emails', emailRouter);
@@ -148,10 +241,11 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
 });
 
 // Start the server
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   console.log(`🚀 Server is running on port ${PORT}`);
   console.log(`📡 Health check: http://localhost:${PORT}/health`);
   console.log(`💬 Chat endpoint: http://localhost:${PORT}/api/chat`);
+  console.log(`🔌 WebSocket server is ready for connections`);
 });
 
 export default app;

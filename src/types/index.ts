@@ -368,3 +368,56 @@ export interface FormAnalysisResult {
   formDescription?: string;
   estimatedCompletionTime: number;
 }
+
+// ==============================
+// VAPI WEBHOOK TYPES
+// ==============================
+
+export interface VapiToolCall {
+  id: string;
+  name: string;
+  parameters: any;
+}
+
+export interface VapiMessage {
+  type: string;
+  call?: any;
+  toolCallList?: VapiToolCall[];
+  toolWithToolCallList?: any[];
+  messages?: any[];
+  status?: string;
+  endedReason?: string;
+  artifact?: any;
+  transcript?: string;
+  transcriptType?: string;
+  role?: string;
+  output?: any;
+  request?: string;
+  destination?: any;
+  input?: string;
+  text?: string;
+  sampleRate?: number;
+  language?: string;
+  turn?: number;
+  chat?: any;
+  session?: any;
+}
+
+export interface VapiWebhookPayload {
+  message: VapiMessage;
+}
+
+// ==============================
+// WEBSOCKET TYPES
+// ==============================
+
+export interface WebSocketEventPayload {
+  event: string;
+  type: string;
+  timestamp: string;
+  data: VapiMessage;
+  metadata: {
+    callId?: string;
+    phoneNumber?: string;
+  };
+}
