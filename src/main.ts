@@ -12,7 +12,7 @@ import applicationsRouter from './routes/applications.js';
 import pollEmails from './services/poller.js';
 import mongoose from 'mongoose';
 import websocketService from './services/websocket.js';
-
+import { VapiClient } from "@vapi-ai/server-sdk"
 // Load environment variables
 dotenv.config();
 
@@ -30,6 +30,7 @@ app.use(cors({
       'http://localhost:3000',
       'http://localhost:5173',
       'https://new-torvely-dashboard.vercel.app',
+      'https://dashboard.vapi.ai',
       "chrome-extension://oeaoefimiancojpimjmkigjdkpaenbdg"
     ];
     if (!origin || allowedOrigins.includes(origin)) {
@@ -55,6 +56,10 @@ mongoose.connect(MONGODB_URI)
   });
   
 pollEmails(); // Start the email polling service
+
+const vapi = new VapiClient({
+  token: process.env.VAPI_API_KEY!
+});
 
 // Initialize the LangChain components using functional approach
 const createLLM = () => {
@@ -94,6 +99,85 @@ const processQuery = async (input: string): Promise<string> => {
   }
 };
 
+// Extract form data from transcript using LLM
+const extractFormDataFromTranscript = async (transcript: string, callId: string | undefined, rooms: string[]) => {
+  try {
+    const llm = createLLM();
+
+    const extractionPrompt = ChatPromptTemplate.fromMessages([
+      ["system", `You are a data extraction assistant. Extract loan application information from user speech.
+        Extract the following fields if mentioned:
+        - businessName: The name of the business
+        - loanAmount: How much money they want to borrow (number only, no currency symbols)
+        - revenue: Annual revenue (number only)
+        - creditScore: Credit score (number only)
+        - yearsInBusiness: How long they've been in business (number only)
+        - employeeCount: Number of employees (number only)
+        - isPurchase: true if they want to purchase a business, false if they own one
+        - industry: Type of business/industry
+
+        Return ONLY a valid JSON object with the fields you found. If a field is not mentioned, omit it.
+        If nothing relevant is found, return an empty object {{}}.
+
+        Examples:
+        Input: "My business is called Acme Corp"
+        Output: {{"businessName": "Acme Corp"}}
+
+        Input: "I need about 500 thousand dollars"
+        Output: {{"loanAmount": 500000}}
+
+        Input: "My credit score is around 700"
+        Output: {{"creditScore": 700}}
+
+        Input: "We make about 50k a month"
+        Output: {{"revenue": 600000}}
+
+        Input: "I want to buy a business"
+        Output: {{"isPurchase": true}}
+
+        Input: "I own a restaurant"
+        Output: {{"industry": "restaurant", "isPurchase": false}}`],
+      ["human", "{input}"]
+    ]);
+
+    const chain = RunnableSequence.from([
+      extractionPrompt,
+      llm,
+      new StringOutputParser()
+    ]);
+
+    const result = await chain.invoke({ input: transcript });
+
+    // Parse the JSON response
+    let extractedData;
+    try {
+      // Clean up the response - remove markdown code blocks if present
+      const cleanedResult = result.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      extractedData = JSON.parse(cleanedResult);
+    } catch (parseError) {
+      console.error('Failed to parse LLM response:', result);
+      return;
+    }
+
+    // Only broadcast if we extracted some data
+    if (Object.keys(extractedData).length > 0) {
+      console.log('📋 Extracted form data:', extractedData);
+
+      // Broadcast to WebSocket clients
+      websocketService.broadcast('form-field-update', {
+        callId: callId,
+        timestamp: new Date().toISOString(),
+        fields: extractedData,
+        source: 'transcript-analysis',
+        transcript: transcript
+      }, rooms);
+    }
+
+  } catch (error) {
+    console.error('Error extracting form data:', error);
+  }
+};
+
 // Routes
 app.get('/', (req, res) => {
   res.json({ 
@@ -116,10 +200,197 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
+app.post('/api/create-vapi-assistant', async (req, res) => {
+  try {
+    const assistant = await vapi.assistants.create({
+      name: "Torvely Loan Specialist",
+      firstMessage: "Hi, thanks for calling! I'm here to help you explore loan options for your business. Are you looking to purchase a business or, um..., get financing for one you already own?",
+      model: {
+        provider: "openai",
+        model: "gpt-4",
+        temperature: 0.7,
+        messages: [{
+          role: "system",
+          content: `[Identity]
+          You are a helpful and knowledgeable loan specialists/broker. You are helping users evaluate if they can get SBA/non SBA loans for their business.
+
+          [Style]
+          - Be informative and comprehensive.
+          - Maintain conversational, spartan tone, use less corporate jargon
+          - Be concise, as you are currently operating as a Voice Conversation.
+          - Feel free to use coughing, stuttering and sneezing I have in the script below
+          - Do not start sentences by complimenting them
+
+          [Conversation Flow]
+          Step 1: Greeting & Discovery (30 seconds)
+          Agent: "Hi, thanks for calling! I'm here to help you explore loan options for your business. Are you looking to purchase a business or, um..., get financing for one you already own?"
+          Then ask 2-3 quick questions:
+
+          "What's the purchase price?" / "How much, uh, ... are you looking to borrow?"
+          "How long have you been in business?" / "Do you have experience in-in-in this industry?"
+          "What's your, um, c-c-credit score roughly?"
+
+          Step 2: Quick Assessment (20 seconds)
+
+          Based on their answers, give one of three assessments:
+
+          Great chances:
+          Credit 680+, 2+ years in business (or strong down payment for purchase), solid revenue
+          "Based on what you're telling me, well, you-you have great chances of getting approved! Your profile is exactly what SBA lenders look for."
+
+          Solid chances:
+          Credit 620-680, some experience or collateral, decent financials
+          "Um, you have solid chances here. Your situation fits, uh, what several of our lenders work with regularly."
+
+          Low chances:
+          Credit below 620, startup with no revenue, weak financials
+          "I'll be honest—you-you have low chances with traditional SBA loans right now, but, um, we have alternative lenders who work with situations like yours."
+
+          Step 3: Persuade to Apply (30 seconds)
+          Agent: "Here's what I recommend : apply through our platform. It's quick, um,—about 15 minutes max—and we'll match you with multiple lenders so you see your best options. We handle the paperwork and negotiate better rates for you. Can I send you the application link?"
+          If they hesitate:
+
+          "It's free to apply, no commitment. You'll see real offers and can decide from there."
+          "We do all the heavy lifting, um, you just fill out one application instead of contacting lenders one by one."
+
+          Close: "You can find the num-, ...sorry, button below the one you used to call us, and can start the, um, application process from there on"
+
+          Example Flow - Purchasing Business
+          Agent: "Hi, thanks for calling! Are you looking to purchase a business or get financing for one you already own?"
+          Caller: "I want to buy a business."
+          Agent: "Great. What's the purchase price, ...and, um, do you have a deal in place?"
+          Caller: "It's $400,000. I have a letter of intent signed."
+          Agent: "Perfect... What's your credit score roughly, and-and how much can you put down?"
+          Caller: "Credit is around 700, and I have about $60,000 for a down payment."
+          Agent: "Got it! You have a good credit score, solid down payment amount, um, you have great chances of, ...uh, securing an SBA loan. Here's what I-I recommend: apply through our platform. Takes about, ...well, 15 minutes, and we'll match you with multiple lenders to get you the ..., um, ...best rates. It's completely free for you, is this ...something you would be interested in?"
+          Caller: "Yeah, sure."
+          Agent: "Perfect! You can find the numbe-, ...sorry, button for going to the app, just below the button you used to call us."
+
+          Example Flow - Existing Business
+          Agent: "Hi, thanks for calling! Are you looking to purchase a business or get financing for one you already own?"
+          Caller: "I own a business and need working capital."
+          Agent: "Got it. How long have you, um, been in business, and what's your monthly revenue roughly?"
+          Caller: "Three years. We do about $50,000 a month."
+          Agent: "Good. What's your, ...um, c-c-credit score, and how much are you looking to borrow?"
+          Caller: "Credit's around 640, need about $75,000."
+          Agent: "Okay-okay, you have solid chances here. Your revenue is strong, and your credit works for several lenders in our network. I'd recommend applying through our platform—takes about, ...well, 15 minutes, and we'll match you with, um, ...the best options. It's completely free for you, is this ...something you would be interested in?"
+          Caller: "How long does it take to get funded?"
+          Agent: "Usually 1 to 3 weeks for SBA loans, ...uh, faster for non-SBA options. You'll see timelines with each offer. So, um, ...are you interested in moving forward?"
+          Caller: "Yeah, okay."
+          Agent: "Perfect! You can find the numbe-, ...sorry, button for going to the app, just below the button you used to call us."
+
+          Keep it conversational - short responses, ask one question at a time
+          Be direct - don't over-explain, get to the assessment quickly
+          Always close - every conversation should end with "can I send you the link?"
+          Match their energy - if they're hurried, be efficient; if uncertain, be reassuring
+          Don't collect detailed info - you're qualifying and directing, not taking info, your job is to redirect them to use the application
+
+          [Response Guideline]
+          - Feel free to make your speech imperfect, use the pauses, coughs and stutters I made for you in the script.
+          - Offer answers to any of their questions
+          - If the user says that they need a loan for "MY"/"MINE" business, that means that they want to get the loan for their business, they are not purchasing
+          - Here are the SBA requirements:
+          Citizenship & Ownership:
+
+          100% ownership by U.S. citizens or Lawful Permanent Residents (LPR) required
+          Non-citizens are completely ineligible for all SBA programs
+
+          Credit Requirements:
+
+          Minimum credit score: typically 620-650
+          Preferred credit score: 680+
+          Credit scores below 650 make SBA approval unlikely
+
+          Business Requirements:
+
+          Must be for-profit, operating legally in U.S.
+          Business must have operated for 2+ years for SBA eligibility
+          Fewer than 500 employees
+          Net income under $5M (after taxes)
+          Must be SBA-eligible industry (excludes real estate investment, lending, gambling, illegal activities, etc.)
+
+          Financial Requirements:
+
+          Minimum 10% down payment for business acquisitions
+          Sufficient cash flow to service debt (DSCR minimum 1.15x, preferred 1.25x+)
+          Business cash flow (SDE) must be positive and adequate
+
+          Personal Requirements:
+
+          No recent bankruptcies, foreclosures, or tax liens
+          Not delinquent on any government debts
+          Owner cannot be on parole
+          Good character assessment required
+
+          SBA 7(a) Program Specifics:
+
+          Loan Amount: $5,000 - $5,000,000
+          Interest Rates: 8.50% - 10.25% (based on Prime + margin)
+          Terms: 7-25 years (10 years working capital, 25 years real estate/equipment)
+          Down Payment: 10% minimum
+          Processing Time: 60-90 days standard, 30-45 days with PLP (Preferred Lender Program) lenders
+          Collateral: Unlimited - all personal assets at risk
+          Personal Guarantee: Required from 20%+ owners
+
+          SBA Express Program Specifics:
+
+          Loan Amount: $25,000 - $500,000
+          Interest Rates: 12.00% - 14.00%
+          Terms: 7-25 years
+          Down Payment: 10% minimum
+          Initial Approval: 36-48 hours
+          Full Funding Timeline: 2-4 weeks
+          Collateral: Unlimited - all personal assets at risk
+
+          Seller Financing Rules (when combined with SBA):
+
+          Seller financing on standby (minimum 2 years) can count toward the 10% equity requirement
+          Standby seller financing typically maxes at 5% of purchase price
+          Seller financing can be up to 60% of purchase price maximum
+          Interest rates: 6-10% typically
+          Terms: 5-7 years typically
+          Collateral scope: Business assets only (more flexible than SBA)
+
+          [Task]
+          1. Greet the user and inquire about their needs for the loan/financing
+          2. Ask about their business, or if they want to purchase the business, info about that business
+          3. Say what chances they have of securing that loan. Use "low" | "solid" | "great" chances, do not be overly specific
+          4. Persuade them to apply for that loan through our app. If you do this successfully, your job is done!
+
+          [Call Closing]
+          - Trigger the endCall Function.`
+        }]
+      },
+      voice: {
+        provider: "11labs",
+        voiceId: "z0gdR3nhVl1Ig2kiEigL"
+      }
+    } as any);
+
+    console.log('✅ Vapi assistant created:', assistant.id);
+
+    res.json({
+      success: true,
+      assistantId: assistant.id,
+      assistant: assistant,
+      message: 'Loan specialist assistant created successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Error creating Vapi assistant:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create assistant',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 app.post('/vapi-ai', (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, tool, arguments: args } = req.body;
 
+    console.log("Tool called:", tool, args);
     console.log('Vapi webhook received:', message?.type || 'unknown');
 
     if (!message || !message.type) {
@@ -140,28 +411,6 @@ app.post('/vapi-ai', (req, res) => {
 
     // Handle only essential cases that require responses
     switch (messageType) {
-      case 'assistant-request':
-        // REQUIRED: Return assistant configuration when call starts
-        return res.json({
-          assistant: {
-            firstMessage: "Hello! I'm your AI assistant. How can I help you today?",
-            model: {
-              provider: "openai",
-              model: "gpt-4o",
-              temperature: 0.7,
-              messages: [
-                {
-                  role: "system",
-                  content: "You are a helpful AI assistant for Torvely. You can help with general questions, provide information, and assist users with their needs. Be friendly, professional, and concise in your responses."
-                }
-              ]
-            },
-            voice: {
-              provider: "11labs",
-              voiceId: "rachel"
-            }
-          }
-        });
 
       case 'conversation-update':
         // Log conversation updates (broadcasted via WebSocket)
@@ -171,6 +420,11 @@ app.post('/vapi-ai', (req, res) => {
       case 'transcript':
         // Log transcript updates (broadcasted via WebSocket)
         console.log('Transcript:', message.transcript);
+
+        // Extract form data from user speech
+        if (message.role === 'user' && message.transcript) {
+          extractFormDataFromTranscript(message.transcript, message.call?.id, rooms);
+        }
         break;
 
       case 'end-of-call-report':
