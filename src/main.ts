@@ -36,7 +36,6 @@ app.use(cors({
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.log(`Blocked CORS request from origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   }
@@ -107,6 +106,7 @@ const extractFormDataFromTranscript = async (transcript: string, callId: string 
     const extractionPrompt = ChatPromptTemplate.fromMessages([
       ["system", `You are a data extraction assistant. Extract loan application information from user speech.
         Extract the following fields if mentioned:
+        - userName: The full name of the user
         - businessName: The name of the business
         - loanAmount: How much money they want to borrow (number only, no currency symbols)
         - revenue: Annual revenue (number only)
@@ -162,7 +162,7 @@ const extractFormDataFromTranscript = async (transcript: string, callId: string 
     // Only broadcast if we extracted some data
     if (Object.keys(extractedData).length > 0) {
       console.log('📋 Extracted form data:', extractedData);
-
+      console.log('📡 Broadcasting extracted data to rooms:', rooms);
       // Broadcast to WebSocket clients
       websocketService.broadcast('form-field-update', {
         callId: callId,
@@ -367,8 +367,6 @@ app.post('/api/create-vapi-assistant', async (req, res) => {
       }
     } as any);
 
-    console.log('✅ Vapi assistant created:', assistant.id);
-
     res.json({
       success: true,
       assistantId: assistant.id,
@@ -388,10 +386,7 @@ app.post('/api/create-vapi-assistant', async (req, res) => {
 
 app.post('/vapi-ai', (req, res) => {
   try {
-    const { message, tool, arguments: args } = req.body;
-
-    console.log("Tool called:", tool, args);
-    console.log('Vapi webhook received:', message?.type || 'unknown');
+    const { message } = req.body;
 
     if (!message || !message.type) {
       return res.status(400).json({ error: 'Invalid webhook payload: missing message or type' });
@@ -402,10 +397,9 @@ app.post('/vapi-ai', (req, res) => {
     // Determine which rooms to broadcast to
     const rooms: string[] = ['global'];
     if (message.call?.id) {
-      rooms.push(`call:${message.call.id}`);
+      rooms.push(`${message.call.id}`);
     }
 
-    console.log(rooms)
     // Broadcast event to WebSocket clients
     websocketService.broadcastVapiEvent(message, rooms);
 
@@ -413,31 +407,28 @@ app.post('/vapi-ai', (req, res) => {
     switch (messageType) {
 
       case 'conversation-update':
-        // Log conversation updates (broadcasted via WebSocket)
-        console.log('Conversation updated:', message.messages?.length, 'messages');
         break;
 
       case 'transcript':
-        // Log transcript updates (broadcasted via WebSocket)
-        console.log('Transcript:', message.transcript);
-
         // Extract form data from user speech
         if (message.role === 'user' && message.transcript) {
           extractFormDataFromTranscript(message.transcript, message.call?.id, rooms);
         }
         break;
 
+      case 'speech-update': {
+        const transcript = message.transcript ?? message.output?.transcript ?? '';
+
+        // Reuse transcript extraction on speech updates when text is present
+        if (transcript) {
+          extractFormDataFromTranscript(transcript, message.call?.id, rooms);
+        }
+        break;
+      }
       case 'end-of-call-report':
-        // Log call summary
-        console.log('Call ended:', {
-          reason: message.endedReason,
-          duration: message.call?.duration
-        });
         break;
 
       default:
-        // All other events are just logged and broadcasted
-        console.log('Event:', messageType);
         break;
     }
 

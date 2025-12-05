@@ -154,7 +154,15 @@ export const broadcastVapiEvent = (
       break;
 
     case 'speech-update':
-      emitToRooms(io, 'vapi-speech-update', payload, allRooms);
+      emitToRooms(io, 'vapi-speech-update', {
+        ...payload,
+        speaker: message.speaker ?? message.output?.speaker,
+        transcript: message.transcript ?? message.output?.transcript,
+        words: message.words ?? message.output?.words ?? [],
+        wordsCount: Array.isArray(message.words ?? message.output?.words) ? (message.words ?? message.output?.words).length : 0,
+        status: message.status,
+        transcriptType: message.transcriptType ?? message.output?.transcriptType,
+      }, allRooms);
       break;
 
     case 'status-update':

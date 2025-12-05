@@ -391,6 +391,8 @@ export interface VapiMessage {
   transcript?: string;
   transcriptType?: string;
   role?: string;
+   speaker?: string;
+   words?: any[];
   output?: any;
   request?: string;
   destination?: any;
