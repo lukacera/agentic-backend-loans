@@ -257,6 +257,23 @@ export const getApplication = async (applicationId: string): Promise<Application
   }
 };
 
+// Get a single application by applicant name (case-insensitive match)
+export const getApplicationByBusinessName = async (name: string): Promise<ApplicationDocument | null> => {
+  try {
+    const sanitizedName = name.trim();
+    if (!sanitizedName) {
+      return null;
+    }
+
+    return await Application.findOne({
+      'applicantData.businessName': { $regex: `^${sanitizedName}$`, $options: 'i' }
+    }).exec();
+  } catch (error) {
+    console.error('Error fetching application by name:', error);
+    throw error;
+  }
+};
+
 // Get all applications with pagination
 export const getApplications = async (
   page: number = 1,

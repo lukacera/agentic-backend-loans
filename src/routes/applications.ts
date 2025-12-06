@@ -2,6 +2,7 @@ import express from 'express';
 import { 
   createApplication, 
   getApplication, 
+  getApplicationByBusinessName,
   getApplications 
 } from '../services/applicationService.js';
 import { 
@@ -85,6 +86,41 @@ router.post('/', async (req, res) => {
     
   } catch (error) {
     console.error('Error creating application:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// GET /api/applications/name/:businessName - Get application by applicant name
+router.get('/name/:businessName', async (req, res) => {
+  try {
+    const { businessName } = req.params;
+
+    if (!businessName || businessName.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Applicant name is required'
+      });
+    }
+
+    const application = await getApplicationByBusinessName(businessName);
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: application
+    });
+
+  } catch (error) {
+    console.error('Error fetching application by name:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error'
