@@ -450,6 +450,13 @@ app.post('/vapi-ai', (req, res) => {
             case 'captureName': {
               const { name } = functionArgs as { name?: string };
               saveOrUpdateUserData(message.call?.id, { name });
+              
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { userName: name },
+                source: 'toolfn-call'
+              }, rooms);
 
               return {
                 toolCallId: toolCall.id,
@@ -464,6 +471,13 @@ app.post('/vapi-ai', (req, res) => {
               const { businessName } = functionArgs as { businessName?: string };
               saveOrUpdateUserData(message.call?.id, { businessName });
 
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { businessName },
+                source: 'toolfn-call'
+              }, rooms);
+              
               return {
                 toolCallId: toolCall.id,
                 result: JSON.stringify({
@@ -480,11 +494,12 @@ app.post('/vapi-ai', (req, res) => {
                 loanPurpose?: string;
               };
 
-              saveOrUpdateUserData(message.call?.id, {
-                loanAmount,
-                loanType,
-                loanPurpose
-              });
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { loanAmount, loanType, loanPurpose },
+                source: 'toolfn-call'
+              }, rooms);
 
               return {
                 toolCallId: toolCall.id,
@@ -499,6 +514,13 @@ app.post('/vapi-ai', (req, res) => {
               const { annualRevenue } = functionArgs as { annualRevenue?: number };
               saveOrUpdateUserData(message.call?.id, { annualRevenue });
 
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { annualRevenue },
+                source: 'toolfn-call'
+              }, rooms);
+
               return {
                 toolCallId: toolCall.id,
                 result: JSON.stringify({
@@ -508,9 +530,36 @@ app.post('/vapi-ai', (req, res) => {
               };
             }
 
+            case 'captureCreditScore': {
+              const { creditScore } = functionArgs as { creditScore?: number };
+              saveOrUpdateUserData(message.call?.id, { creditScore });
+
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { creditScore },
+                source: 'toolfn-call'
+              }, rooms);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: 'Credit score captured successfully.'
+                })
+              };
+            }
+
             case 'captureYearFounded': {
               const { yearFounded } = functionArgs as { yearFounded?: number };
               saveOrUpdateUserData(message.call?.id, { yearFounded });
+
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { yearFounded },
+                source: 'toolfn-call'
+              }, rooms);
 
               return {
                 toolCallId: toolCall.id,
