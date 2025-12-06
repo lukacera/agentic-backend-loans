@@ -530,6 +530,26 @@ app.post('/vapi-ai', (req, res) => {
               };
             }
 
+            case 'captureBusinessPhone': {
+              const { businessPhone } = functionArgs as { businessPhone?: string };
+              saveOrUpdateUserData(message.call?.id, { businessPhone });
+
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { businessPhone },
+                source: 'toolfn-call'
+              }, rooms);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: 'Business phone captured successfully.'
+                })
+              };
+            }
+
             case 'captureCreditScore': {
               const { creditScore } = functionArgs as { creditScore?: number };
               saveOrUpdateUserData(message.call?.id, { creditScore });

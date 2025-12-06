@@ -312,7 +312,7 @@ export enum ApplicationStatus {
 export interface ApplicationSubmissionRequest {
   name: string;
   businessName: string;
-  businessPhoneNumber: string;
+  businessPhone: string;
   creditScore: number;
   annualRevenue: number;
   yearFounded: number;
