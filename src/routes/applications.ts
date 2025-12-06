@@ -230,8 +230,7 @@ router.post('/name', async (req, res) => {
 
     console.log('Found application:', application);
     res.json({
-      success: true,
-      data: application
+      application
     });
 
   } catch (error) {
