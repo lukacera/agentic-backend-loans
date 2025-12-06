@@ -383,7 +383,6 @@ app.post('/api/create-vapi-assistant', async (req, res) => {
     });
   }
 });
-
 app.post('/vapi-ai', (req, res) => {
   try {
     const { message } = req.body;
@@ -405,12 +404,145 @@ app.post('/vapi-ai', (req, res) => {
 
     // Handle only essential cases that require responses
     switch (messageType) {
+      
+      case 'tool-calls': {
+        console.log('📞 Processing tool calls...');
+
+        const toolCalls = Array.isArray(message.toolCalls) ? message.toolCalls : [];
+
+        // Process each tool call
+        const results = toolCalls.map((toolCall: any) => {
+          const functionName = toolCall?.function?.name;
+          const rawArgs = toolCall?.function?.arguments;
+
+          let functionArgs: Record<string, unknown> = {};
+          try {
+            if (typeof rawArgs === 'string') {
+              functionArgs = rawArgs ? JSON.parse(rawArgs) : {};
+            } else if (rawArgs && typeof rawArgs === 'object') {
+              functionArgs = rawArgs as Record<string, unknown>;
+            }
+          } catch (parseError) {
+            console.error('⚠️ Failed to parse tool call arguments:', parseError);
+            return {
+              toolCallId: toolCall?.id,
+              result: JSON.stringify({
+                success: false,
+                error: 'Invalid tool call arguments'
+              })
+            };
+          }
+
+          if (!functionName) {
+            console.warn('⚠️ Missing function name in tool call');
+            return {
+              toolCallId: toolCall?.id,
+              result: JSON.stringify({
+                success: false,
+                error: 'Missing function name'
+              })
+            };
+          }
+
+          console.log(`🔧 Function: ${functionName}`, functionArgs);
+
+          switch (functionName) {
+            case 'captureName': {
+              const { name } = functionArgs as { name?: string };
+              saveOrUpdateUserData(message.call?.id, { name });
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: `Got it! Name "${name ?? ''}" has been captured.`
+                })
+              };
+            }
+
+            case 'captureBusinessName': {
+              const { businessName } = functionArgs as { businessName?: string };
+              saveOrUpdateUserData(message.call?.id, { businessName });
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: `Business name "${businessName ?? ''}" has been captured.`
+                })
+              };
+            }
+
+            case 'captureLoan': {
+              const { loanAmount, loanType, loanPurpose } = functionArgs as {
+                loanAmount?: number;
+                loanType?: string;
+                loanPurpose?: string;
+              };
+
+              saveOrUpdateUserData(message.call?.id, {
+                loanAmount,
+                loanType,
+                loanPurpose
+              });
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: 'Loan information captured successfully.'
+                })
+              };
+            }
+
+            case 'captureAnnualRevenue': {
+              const { annualRevenue } = functionArgs as { annualRevenue?: number };
+              saveOrUpdateUserData(message.call?.id, { annualRevenue });
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: 'Annual revenue captured successfully.'
+                })
+              };
+            }
+
+            case 'captureYearFounded': {
+              const { yearFounded } = functionArgs as { yearFounded?: number };
+              saveOrUpdateUserData(message.call?.id, { yearFounded });
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: 'Year founded captured successfully.'
+                })
+              };
+            }
+
+            default:
+              console.warn(`⚠️ Unknown function: ${functionName}`);
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: false,
+                  error: `Unknown function: ${functionName}`
+                })
+              };
+          }
+        });
+        
+        console.log('📤 Sending results back to Vapi:', results);
+        
+        // IMPORTANT: Return results to Vapi
+        return res.json({ results });
+      }
 
       case 'conversation-update':
         break;
 
       case 'transcript':
-        // Extract form data from user speech
         if (message.role === 'user' && message.transcript) {
           extractFormDataFromTranscript(message.transcript, message.call?.id, rooms);
         }
@@ -418,14 +550,15 @@ app.post('/vapi-ai', (req, res) => {
 
       case 'speech-update': {
         const transcript = message.transcript ?? message.output?.transcript ?? '';
-
-        // Reuse transcript extraction on speech updates when text is present
         if (transcript) {
           extractFormDataFromTranscript(transcript, message.call?.id, rooms);
         }
         break;
       }
+
       case 'end-of-call-report':
+        // You might want to save final data here
+        console.log('📞 Call ended, final report:', message);
         break;
 
       default:
@@ -440,13 +573,51 @@ app.post('/vapi-ai', (req, res) => {
     });
 
   } catch (error) {
-    console.error('Vapi webhook error:', error);
+    console.error('❌ Vapi webhook error:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: 'Failed to process webhook'
     });
   }
 });
+
+// Helper function to save or update user data
+// This maintains one record per call and updates it as data comes in
+const userDataStore = new Map(); // In-memory store (use database in production)
+
+function saveOrUpdateUserData(callId: string | undefined, data: any) {
+  if (!callId) {
+    console.warn('No callId provided, skipping save');
+    return;
+  }
+  
+  // Get existing data or create new record
+  const existing = userDataStore.get(callId) || {
+    callId,
+    createdAt: new Date(),
+  };
+  
+  // Merge new data
+  const updated = {
+    ...existing,
+    ...data,
+    updatedAt: new Date()
+  };
+  
+  userDataStore.set(callId, updated);
+  
+  console.log('💾 Saved user data:', updated);
+  
+  // TODO: Save to actual database
+  // await UserData.updateOne({ callId }, updated, { upsert: true });
+  
+  return updated;
+}
+
+// Optional: Get all captured data for a call
+function getUserData(callId: string) {
+  return userDataStore.get(callId);
+}
 
 // Agent routes
 app.use('/api/docs', docsRouter);
