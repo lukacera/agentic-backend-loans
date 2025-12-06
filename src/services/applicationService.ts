@@ -84,7 +84,6 @@ const processApplicationAsync = async (application: ApplicationDocument): Promis
     application.status = ApplicationStatus.SENT_TO_BANK;
     await application.save();
     
-    console.log(`Application ${application.applicationId} processed successfully`);
     
   } catch (error) {
     console.error('Error processing application:', error);
@@ -146,12 +145,10 @@ const generateSBADocuments = async (
         
         if (fillResult.success && fillResult.outputPath) {
           generatedFiles.push(fillResult.outputPath);
-          console.log(`Generated document: ${outputFileName} at path: ${fillResult.outputPath}`);
           
           // Verify file exists and check size
           if (await fs.pathExists(fillResult.outputPath)) {
             const stats = await fs.stat(fillResult.outputPath);
-            console.log(`Document file verified: ${stats.size} bytes`);
           } else {
             console.error(`Generated document file not found at path: ${fillResult.outputPath}`);
           }
@@ -165,7 +162,6 @@ const generateSBADocuments = async (
       }
     }
     
-    console.log(`Document generation completed. Generated ${generatedFiles.length} files:`, generatedFiles);
     return generatedFiles;
     
   } catch (error) {
@@ -180,8 +176,6 @@ const sendApplicationEmail = async (
   documentPaths: string[]
 ): Promise<void> => {
   try {
-    console.log(`Starting email sending process for application ${application.applicationId}`);
-    console.log(`Document paths received:`, documentPaths);
     
     // Prepare email attachments
     const attachments = [];
@@ -197,7 +191,6 @@ const sendApplicationEmail = async (
           contentType: 'application/pdf'
         });
         
-        console.log(`Added attachment: ${fileName} from path: ${docPath}`);
       } else {
         console.warn(`Document file not found: ${docPath}`);
       }
@@ -225,7 +218,6 @@ const sendApplicationEmail = async (
     
     if (emailResult.success && emailResult.data) {
       // Send the email with attachments
-      console.log(`Sending email to ${application.bankEmail} with ${attachments.length} attachments`);
       
       const emailInfo = await sendEmail({
         to: [application.bankEmail],
@@ -235,8 +227,6 @@ const sendApplicationEmail = async (
         attachments
       });
       
-      console.log(`Application email sent successfully for ${application.applicationId}`);
-      console.log(`Email message ID: ${emailInfo.messageId}`);
     } else {
       throw new Error(`Failed to compose email: ${emailResult.error}`);
     }
@@ -270,6 +260,45 @@ export const getApplicationByBusinessName = async (name: string): Promise<Applic
     }).exec();
   } catch (error) {
     console.error('Error fetching application by name:', error);
+    throw error;
+  }
+};
+
+const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Get a single application by business phone number (supports common formatting variations)
+export const getApplicationByPhone = async (phone: string): Promise<ApplicationDocument | null> => {
+  try {
+    const sanitizedPhone = phone.trim();
+
+    if (!sanitizedPhone) {
+      return null;
+    }
+
+    const digitsOnly = sanitizedPhone.replace(/\D+/g, '');
+
+    const orConditions: Record<string, unknown>[] = [];
+    console.log('Searching for phone number with sanitized input:', sanitizedPhone, 'and digits only:', digitsOnly);
+    orConditions.push({
+      'applicantData.businessPhoneNumber': {
+        $regex: `^${escapeRegex(sanitizedPhone)}$`,
+        $options: 'i'
+      }
+    });
+
+    if (digitsOnly.length > 3) {
+      const loosePattern = `^\\D*${digitsOnly.split('').map((digit) => escapeRegex(digit)).join('\\D*')}\\D*$`;
+      orConditions.push({
+        'applicantData.businessPhoneNumber': {
+          $regex: loosePattern,
+          $options: 'i'
+        }
+      });
+    }
+
+    return await Application.findOne({ $or: orConditions }).exec();
+  } catch (error) {
+    console.error('Error fetching application by phone number:', error);
     throw error;
   }
 };

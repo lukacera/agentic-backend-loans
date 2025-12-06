@@ -3,6 +3,7 @@ import {
   createApplication, 
   getApplication, 
   getApplicationByBusinessName,
+  getApplicationByPhone,
   getApplications 
 } from '../services/applicationService.js';
 import { 
@@ -11,6 +12,103 @@ import {
 } from '../types/index.js';
 
 const router = express.Router();
+
+const extractToolCallArguments = (payload: any): Record<string, unknown> => {
+  const aggregatedArgs: Record<string, unknown> = {};
+
+  const toolCalls = payload?.message?.toolCalls;
+  if (!Array.isArray(toolCalls)) {
+    return aggregatedArgs;
+  }
+
+  for (const toolCall of toolCalls) {
+    const rawArgs = toolCall?.function?.arguments;
+    if (!rawArgs) {
+      continue;
+    }
+
+    let parsedArgs: Record<string, unknown> | null = null;
+
+    if (typeof rawArgs === 'string') {
+      try {
+        parsedArgs = JSON.parse(rawArgs);
+      } catch (error) {
+        console.error('⚠️ Failed to parse tool call arguments string:', error);
+        continue;
+      }
+    } else if (typeof rawArgs === 'object') {
+      parsedArgs = rawArgs as Record<string, unknown>;
+    }
+
+    if (parsedArgs) {
+      Object.assign(aggregatedArgs, parsedArgs);
+    }
+  }
+
+  return aggregatedArgs;
+};
+
+const extractBusinessName = (
+  payload: any,
+  preParsedArgs: Record<string, unknown> | null = null
+): string | null => {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const toolCallArgs = preParsedArgs ?? extractToolCallArguments(payload);
+  const candidates = [
+    payload.businessName,
+    payload?.message?.businessName,
+    payload?.message?.data?.businessName,
+    payload?.message?.payload?.businessName,
+    payload?.message?.input?.businessName,
+    payload?.data?.businessName,
+    payload?.payload?.businessName,
+    payload?.fields?.businessName,
+    toolCallArgs?.['businessName']
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+};
+
+const extractBusinessPhone = (
+  payload: any,
+  preParsedArgs: Record<string, unknown> | null = null
+): string | null => {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const toolCallArgs = preParsedArgs ?? extractToolCallArguments(payload);
+  const candidates = [
+    payload.businessPhone,
+    payload?.message?.businessPhone,
+    payload?.message?.data?.businessPhone,
+    payload?.message?.payload?.businessPhone,
+    payload?.data?.businessPhone,
+    payload?.payload?.businessPhone,
+    payload?.fields?.businessPhone,
+    payload.businessPhoneNumber,
+    payload?.message?.data?.businessPhoneNumber,
+    toolCallArgs?.['businessPhone'],
+    toolCallArgs?.['businessPhoneNumber']
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+};
 
 // POST /api/applications - Submit new SBA loan application
 router.post('/', async (req, res) => {
@@ -93,27 +191,44 @@ router.post('/', async (req, res) => {
   }
 });
 
-// GET /api/applications/name/:businessName - Get application by applicant name
-router.get('/name/:businessName', async (req, res) => {
+// POST /api/applications/name - Get application by business name in request body
+router.post('/name', async (req, res) => {
   try {
-    const { businessName } = req.params;
+    const toolCallArgs = extractToolCallArguments(req.body);
+    const businessName = extractBusinessName(req.body, toolCallArgs);
+    const businessPhone = extractBusinessPhone(req.body, toolCallArgs);
 
-    if (!businessName || businessName.trim().length === 0) {
+    console.log('Request body:', req.body);
+    console.log('Extracted tool call arguments:', toolCallArgs);
+    console.log('Extracted businessName:', businessName);
+    console.log('Extracted businessPhone:', businessPhone);
+    if (!businessName && !businessPhone) {
       return res.status(400).json({
         success: false,
-        error: 'Applicant name is required'
+        error: 'Business name or phone number is required'
       });
     }
 
-    const application = await getApplicationByBusinessName(businessName);
+    let application = null;
+
+    if (businessName) {
+      application = await getApplicationByBusinessName(businessName);
+    }
+
+    if (!application && businessPhone) {
+      console.log('Searching application by phone number:', businessPhone);
+      application = await getApplicationByPhone(businessPhone);
+    }
 
     if (!application) {
+      console.log('No application found for businessName or businessPhone');
       return res.status(404).json({
         success: false,
         error: 'Application not found'
       });
     }
 
+    console.log('Found application:', application);
     res.json({
       success: true,
       data: application
