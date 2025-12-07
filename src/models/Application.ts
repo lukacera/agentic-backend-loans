@@ -1,18 +1,7 @@
 import { Schema, model, Document } from 'mongoose';
 import { SBAApplication, ApplicationStatus } from '../types/index.js';
 
-// Extend the SBAApplication interface to include Mongoose Document methods
-export interface ApplicationDocument extends Omit<SBAApplication, '_id'>, Document {
-  applicationId: string;
-}
-
-const sbaApplicationSchema = new Schema<ApplicationDocument>({
-  applicationId: {
-    type: String,
-    required: true,
-    unique: true,
-    index: true
-  },
+const sbaApplicationSchema = new Schema<SBAApplication>({
   applicantData: {
     name: {
       type: String,
@@ -126,4 +115,4 @@ const sbaApplicationSchema = new Schema<ApplicationDocument>({
 sbaApplicationSchema.index({ status: 1, createdAt: -1 });
 sbaApplicationSchema.index({ 'applicantData.creditScore': 1 });
 
-export const Application = model<ApplicationDocument>('Application', sbaApplicationSchema);
+export const Application = model<SBAApplication>('Application', sbaApplicationSchema);

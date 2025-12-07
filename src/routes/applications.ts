@@ -1,17 +1,35 @@
 import express from 'express';
-import { 
-  createApplication, 
-  getApplication, 
+import multer from 'multer';
+import {
+  createApplication,
+  getApplication,
   getApplicationByBusinessName,
   getApplicationByPhone,
-  getApplications 
+  getApplications,
+  handleSignedDocuments,
+  submitApplicationToBank
 } from '../services/applicationService.js';
-import { 
-  ApplicationSubmissionRequest, 
-  ApplicationStatus 
+import {
+  ApplicationSubmissionRequest,
+  ApplicationStatus
 } from '../types/index.js';
+import { Application } from '../models/Application.js';
+import { generatePresignedUrl } from '../services/s3Service.js';
 
 const router = express.Router();
+
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF files are allowed'));
+    }
+  }
+});
 
 const extractToolCallArguments = (payload: any): Record<string, unknown> => {
   const aggregatedArgs: Record<string, unknown> = {};
@@ -327,6 +345,185 @@ router.get('/status/counts', async (req, res) => {
     
   } catch (error) {
     console.error('Error fetching status counts:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// GET /api/applications/:applicationId/documents - Get unsigned document URLs
+router.get('/:applicationId/documents', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const expiresIn = parseInt(req.query.expiresIn as string) || 3600; // 1 hour default
+
+    const application = await Application.findOne({ applicationId });
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found'
+      });
+    }
+
+    // Check if documents are ready
+    if (application.unsignedDocuments.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No documents generated yet',
+        status: application.status
+      });
+    }
+
+    // Generate pre-signed URLs for each document
+    const documentsWithUrls = await Promise.all(
+      application.unsignedDocuments.map(async (doc) => {
+        const presignedUrl = await generatePresignedUrl(doc.s3Key, expiresIn);
+        return {
+          fileName: doc.fileName,
+          url: presignedUrl,
+          uploadedAt: doc.uploadedAt,
+          expiresIn
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      data: {
+        applicationId,
+        status: application.status,
+        documents: documentsWithUrls
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching documents:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// POST /api/applications/:applicationId/documents/signed - Upload signed documents
+router.post('/:applicationId/documents/signed', upload.array('documents', 10), async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const files = req.files as Express.Multer.File[];
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No files uploaded'
+      });
+    }
+
+    // Optional signing metadata from request body
+    const signingMetadata = {
+      signedBy: req.body.signedBy,
+      signingProvider: req.body.signingProvider,
+      signingRequestId: req.body.signingRequestId
+    };
+
+    // Convert files to buffer format
+    const signedDocumentBuffers = files.map(file => ({
+      fileName: file.originalname,
+      buffer: file.buffer
+    }));
+
+    // Process signed documents
+    const result = await handleSignedDocuments(
+      applicationId,
+      signedDocumentBuffers,
+      signingMetadata
+    );
+
+    res.json({
+      success: true,
+      data: result
+    });
+
+  } catch (error) {
+    console.error('Error uploading signed documents:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// GET /api/applications/:applicationId/documents/signed - Get signed document URLs
+router.get('/:applicationId/documents/signed', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const expiresIn = parseInt(req.query.expiresIn as string) || 3600;
+
+    const application = await Application.findOne({ applicationId });
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found'
+      });
+    }
+
+    if (application.signedDocuments.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No signed documents found',
+        status: application.status
+      });
+    }
+
+    const documentsWithUrls = await Promise.all(
+      application.signedDocuments.map(async (doc) => {
+        const presignedUrl = await generatePresignedUrl(doc.s3Key, expiresIn);
+        return {
+          fileName: doc.fileName,
+          url: presignedUrl,
+          uploadedAt: doc.uploadedAt,
+          signedAt: doc.signedAt,
+          expiresIn
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      data: {
+        applicationId,
+        status: application.status,
+        signedBy: application.signedBy,
+        signedDate: application.signedDate,
+        documents: documentsWithUrls
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching signed documents:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// POST /api/applications/:applicationId/submit-to-bank - Send signed docs to bank
+router.post('/:applicationId/submit-to-bank', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+
+    const result = await submitApplicationToBank(applicationId);
+
+    res.json({
+      success: true,
+      data: result
+    });
+
+  } catch (error) {
+    console.error('Error submitting to bank:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error'

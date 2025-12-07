@@ -1,16 +1,23 @@
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 import * as fs from 'fs-extra';
-import { Application, ApplicationDocument } from '../models/Application.js';
-import { 
-  SBAApplicationData, 
-  ApplicationStatus, 
+import { Application } from '../models/Application.js';
+import {
+  SBAApplicationData,
+  ApplicationStatus,
   ApplicationResponse,
+  DocumentStorageInfo,
+  SBAApplication,
 } from '../types/index.js';
 import { sendEmail } from './emailSender.js';
 import { composeEmail, createEmailAgent } from '../agents/EmailAgent.js';
 import { createDocumentAgent } from '../agents/DocumentAgent.js';
 import { fillPDFForm, mapDataWithAI, extractFormFields } from './pdfFormProcessor.js';
+import {
+  uploadDocumentWithRetry,
+  downloadDocument,
+  generatePresignedUrl
+} from './s3Service.js';
 
 const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
 const GENERATED_DIR = path.join(process.cwd(), 'generated');
@@ -27,11 +34,8 @@ export const createApplication = async (
   try {
     await initializeDirectories();
     
-    const applicationId = uuidv4();
-    
     // Create application in MongoDB
     const application = new Application({
-      applicationId,
       applicantData,
       status: ApplicationStatus.SUBMITTED,
       documentsGenerated: false,
@@ -46,7 +50,6 @@ export const createApplication = async (
     processApplicationAsync(application);
     
     return {
-      applicationId,
       status: ApplicationStatus.SUBMITTED,
       message: 'Application submitted successfully. Documents are being prepared and will be sent to the bank shortly.'
     };
@@ -57,37 +60,48 @@ export const createApplication = async (
   }
 };
 
-// Async processing of application (documents + email)
-const processApplicationAsync = async (application: ApplicationDocument): Promise<void> => {
+// Async processing of application (documents + S3 upload)
+const processApplicationAsync = async (application: SBAApplication): Promise<void> => {
   try {
     // Update status to processing
     application.status = ApplicationStatus.PROCESSING;
     await application.save();
-    
+
     // Generate documents using DocumentAgent and form processor
     const generatedDocuments = await generateSBADocuments(
-      application.applicantData, 
-      application.applicationId
+      application.applicantData,
+      application._id?.toString() || ''
     );
-    
-    // Update application with generated documents
-    application.generatedDocuments = generatedDocuments;
+
+    // Upload documents to S3
+    const uploadedDocs = await uploadDocumentsToS3(
+      application._id?.toString() || '',
+      generatedDocuments,
+      'unsigned'
+    );
+
+    // Update application with S3 information
+    application.unsignedDocuments = uploadedDocs;
+    application.documentsUploadedToS3 = true;
+    application.s3UploadedAt = new Date();
+    application.status = ApplicationStatus.AWAITING_SIGNATURE;
+
+    // Keep legacy fields for backwards compatibility
     application.documentsGenerated = true;
-    application.status = ApplicationStatus.DOCUMENTS_GENERATED;
+    application.generatedDocuments = generatedDocuments;
+
     await application.save();
-    
-    // Send email with documents
-    await sendApplicationEmail(application, generatedDocuments);
-    
-    // Update final status
-    application.emailSent = true;
-    application.status = ApplicationStatus.SENT_TO_BANK;
-    await application.save();
-    
-    
+
+    // Clean up local files after successful upload
+    await cleanupLocalFiles(generatedDocuments);
+
+    console.log(`Application ${application._id} ready for signature`);
+
+    // Email will be sent after documents are signed via submitApplicationToBank()
+
   } catch (error) {
     console.error('Error processing application:', error);
-    
+
     // Update application status to failed
     try {
       application.status = ApplicationStatus.CANCELLED;
@@ -170,9 +184,63 @@ const generateSBADocuments = async (
   }
 };
 
+// Upload multiple documents to S3
+const uploadDocumentsToS3 = async (
+  applicationId: string,
+  localFilePaths: string[],
+  docType: 'unsigned' | 'signed'
+): Promise<DocumentStorageInfo[]> => {
+  const uploadedDocs: DocumentStorageInfo[] = [];
+
+  for (const filePath of localFilePaths) {
+    try {
+      const fileName = path.basename(filePath);
+      const fileBuffer = await fs.readFile(filePath);
+
+      console.log(`Uploading ${fileName} to S3...`);
+
+      const s3Result = await uploadDocumentWithRetry(
+        applicationId,
+        fileName,
+        fileBuffer,
+        docType
+      );
+
+      uploadedDocs.push({
+        fileName,
+        s3Key: s3Result.key,
+        s3Url: s3Result.url,
+        uploadedAt: new Date()
+      });
+
+      console.log(`Successfully uploaded ${fileName} to S3`);
+    } catch (error) {
+      console.error(`Failed to upload ${filePath} to S3:`, error);
+      throw error;
+    }
+  }
+
+  return uploadedDocs;
+};
+
+// Clean up local files after successful S3 upload
+const cleanupLocalFiles = async (filePaths: string[]): Promise<void> => {
+  for (const filePath of filePaths) {
+    try {
+      if (await fs.pathExists(filePath)) {
+        await fs.remove(filePath);
+        console.log(`Cleaned up local file: ${filePath}`);
+      }
+    } catch (error) {
+      console.error(`Failed to clean up file ${filePath}:`, error);
+      // Don't throw - cleanup failures shouldn't break the flow
+    }
+  }
+};
+
 // Send application email with documents
 const sendApplicationEmail = async (
-  application: ApplicationDocument,
+  application: SBAApplication,
   documentPaths: string[]
 ): Promise<void> => {
   try {
@@ -201,7 +269,7 @@ const sendApplicationEmail = async (
     
     const emailComposition = {
       recipients: [application.bankEmail],
-      subject: `SBA Loan Application Submission - Application ID: ${application.applicationId}`,
+      subject: `SBA Loan Application Submission - Application ID: ${application._id}`,
       purpose: 'NEW LOAN APPLICATION' as any,
       tone: 'PROFESSIONAL' as any,
       keyPoints: [
@@ -237,8 +305,199 @@ const sendApplicationEmail = async (
   }
 };
 
+// Handle signed documents upload
+export const handleSignedDocuments = async (
+  applicationId: string,
+  signedDocumentBuffers: Array<{ fileName: string; buffer: Buffer }>,
+  signingMetadata?: {
+    signedBy?: string;
+    signingProvider?: string;
+    signingRequestId?: string;
+  }
+): Promise<ApplicationResponse> => {
+  try {
+    const application = await Application.findOne({ applicationId });
+
+    if (!application) {
+      throw new Error('Application not found');
+    }
+
+    if (application.status !== ApplicationStatus.AWAITING_SIGNATURE) {
+      throw new Error(`Cannot process signed documents. Current status: ${application.status}`);
+    }
+
+    // Upload signed documents to S3
+    const uploadedSignedDocs: DocumentStorageInfo[] = [];
+
+    for (const doc of signedDocumentBuffers) {
+      console.log(`Uploading signed document: ${doc.fileName}`);
+
+      const s3Result = await uploadDocumentWithRetry(
+        applicationId,
+        doc.fileName,
+        doc.buffer,
+        'signed'
+      );
+
+      uploadedSignedDocs.push({
+        fileName: doc.fileName,
+        s3Key: s3Result.key,
+        s3Url: s3Result.url,
+        uploadedAt: new Date(),
+        signedAt: new Date()
+      });
+    }
+
+    // Update application
+    application.signedDocuments = uploadedSignedDocs;
+    application.status = ApplicationStatus.SIGNED;
+    application.signingStatus = 'completed';
+    application.signedDate = new Date();
+
+    if (signingMetadata) {
+      application.signedBy = signingMetadata.signedBy;
+      application.signingProvider = signingMetadata.signingProvider as any;
+      application.signingRequestId = signingMetadata.signingRequestId;
+    }
+
+    await application.save();
+
+    console.log(`Signed documents processed for application ${applicationId}`);
+
+    return {
+      status: ApplicationStatus.SIGNED,
+      message: 'Signed documents uploaded successfully',
+      documentsGenerated: uploadedSignedDocs.map(d => d.s3Key)
+    };
+
+  } catch (error) {
+    console.error('Error handling signed documents:', error);
+    throw error;
+  }
+};
+
+// Download signed documents from S3
+const downloadSignedDocumentsFromS3 = async (
+  signedDocuments: DocumentStorageInfo[]
+): Promise<Array<{ fileName: string; buffer: Buffer }>> => {
+  const documentBuffers = [];
+
+  for (const doc of signedDocuments) {
+    try {
+      console.log(`Downloading signed document from S3: ${doc.fileName}`);
+      const buffer = await downloadDocument(doc.s3Key);
+      documentBuffers.push({
+        fileName: doc.fileName,
+        buffer
+      });
+    } catch (error) {
+      console.error(`Failed to download ${doc.fileName} from S3:`, error);
+      throw new Error(`Failed to download document: ${doc.fileName}`);
+    }
+  }
+
+  return documentBuffers;
+};
+
+// Send email with S3 documents
+const sendApplicationEmailWithS3Docs = async (
+  application: SBAApplication,
+  documentBuffers: Array<{ fileName: string; buffer: Buffer }>
+): Promise<void> => {
+  try {
+    // Prepare email attachments from buffers
+    const attachments = documentBuffers.map(doc => ({
+      filename: doc.fileName,
+      content: doc.buffer,
+      contentType: 'application/pdf'
+    }));
+
+    // Generate professional email content using EmailAgent
+    const emailAgent = createEmailAgent();
+
+    const emailComposition = {
+      recipients: [application.bankEmail],
+      subject: `SBA Loan Application Submission - ${application.applicantData.businessName}`,
+      purpose: 'NEW LOAN APPLICATION' as any,
+      tone: 'PROFESSIONAL' as any,
+      keyPoints: [
+        `New SBA loan application from ${application.applicantData.businessName}`,
+        `Annual revenue: $${application.applicantData.annualRevenue.toLocaleString()}`,
+        `Credit score: ${application.applicantData.creditScore}`,
+        'All required SBA forms completed, signed, and attached',
+        'Ready for review and processing'
+      ],
+      context: `Signed loan application documents for ${application.applicantData.businessName}. All documents have been electronically signed and are ready for bank review.`
+    };
+
+    const emailResult = await composeEmail(emailAgent, emailComposition);
+
+    if (emailResult.success && emailResult.data) {
+      await sendEmail({
+        to: [application.bankEmail],
+        subject: emailResult.data.subject,
+        html: emailResult.data.body,
+        text: emailResult.data.body.replace(/<[^>]*>/g, ''),
+        attachments
+      });
+    } else {
+      throw new Error(`Failed to compose email: ${emailResult.error}`);
+    }
+
+  } catch (error) {
+    console.error('Error sending application email with S3 docs:', error);
+    throw error;
+  }
+};
+
+// Submit application to bank
+export const submitApplicationToBank = async (
+  applicationId: string
+): Promise<ApplicationResponse> => {
+  try {
+    const application = await Application.findOne({ applicationId });
+
+    if (!application) {
+      throw new Error('Application not found');
+    }
+
+    if (application.status !== ApplicationStatus.SIGNED) {
+      throw new Error(`Cannot submit to bank. Documents must be signed first. Current status: ${application.status}`);
+    }
+
+    if (application.signedDocuments.length === 0) {
+      throw new Error('No signed documents found');
+    }
+
+    // Download signed documents from S3
+    const documentBuffers = await downloadSignedDocumentsFromS3(
+      application.signedDocuments
+    );
+
+    // Send email with signed documents
+    await sendApplicationEmailWithS3Docs(application, documentBuffers);
+
+    // Update application
+    application.status = ApplicationStatus.SENT_TO_BANK;
+    application.emailSent = true;
+    application.emailSentAt = new Date();
+    await application.save();
+
+    console.log(`Application ${applicationId} submitted to bank`);
+
+    return {
+      status: ApplicationStatus.SENT_TO_BANK,
+      message: 'Application submitted to bank successfully'
+    };
+
+  } catch (error) {
+    console.error('Error submitting application to bank:', error);
+    throw error;
+  }
+};
+
 // Get application by ID
-export const getApplication = async (applicationId: string): Promise<ApplicationDocument | null> => {
+export const getApplication = async (applicationId: string): Promise<SBAApplication | null> => {
   try {
     return await Application.findById(applicationId).exec();
   } catch (error) {
@@ -248,7 +507,7 @@ export const getApplication = async (applicationId: string): Promise<Application
 };
 
 // Get a single application by applicant name (case-insensitive match)
-export const getApplicationByBusinessName = async (name: string): Promise<ApplicationDocument | null> => {
+export const getApplicationByBusinessName = async (name: string): Promise<SBAApplication | null> => {
   try {
     const sanitizedName = name.trim();
     if (!sanitizedName) {
@@ -267,7 +526,7 @@ export const getApplicationByBusinessName = async (name: string): Promise<Applic
 const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Get a single application by business phone number (supports common formatting variations)
-export const getApplicationByPhone = async (phone: string): Promise<ApplicationDocument | null> => {
+export const getApplicationByPhone = async (phone: string): Promise<SBAApplication | null> => {
   try {
     const sanitizedPhone = phone.trim();
 
@@ -308,7 +567,7 @@ export const getApplications = async (
   page: number = 1,
   limit: number = 10,
   status?: ApplicationStatus
-): Promise<{ applications: ApplicationDocument[], total: number, page: number, pages: number }> => {
+): Promise<{ applications: SBAApplication[], total: number, page: number, pages: number }> => {
   try {
     const query = status ? { status } : {};
     const skip = (page - 1) * limit;

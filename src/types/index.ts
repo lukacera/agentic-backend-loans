@@ -1,6 +1,4 @@
-// ==============================
-// COMMON TYPES
-// ==============================
+import { Document, ObjectId } from "mongoose";
 
 export interface AgentConfig {
   name: string;
@@ -293,9 +291,7 @@ export interface DocumentStorageInfo {
   signedAt?: Date;
 }
 
-export interface SBAApplication {
-  _id?: string;
-  applicationId: string;
+export interface SBAApplication extends Document {
   applicantData: SBAApplicationData;
   status: ApplicationStatus;
   documentsGenerated: boolean;
@@ -348,7 +344,6 @@ export interface ApplicationSubmissionRequest {
 }
 
 export interface ApplicationResponse {
-  applicationId: string;
   status: ApplicationStatus;
   message: string;
   documentsGenerated?: string[];
