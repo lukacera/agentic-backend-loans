@@ -316,7 +316,7 @@ export const handleSignedDocuments = async (
   }
 ): Promise<ApplicationResponse> => {
   try {
-    const application = await Application.findOne({ applicationId });
+    const application = await Application.findById(applicationId);
 
     if (!application) {
       throw new Error('Application not found');
@@ -455,7 +455,7 @@ export const submitApplicationToBank = async (
   applicationId: string
 ): Promise<ApplicationResponse> => {
   try {
-    const application = await Application.findOne({ applicationId });
+    const application = await Application.findById(applicationId);
 
     if (!application) {
       throw new Error('Application not found');

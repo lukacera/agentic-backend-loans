@@ -358,7 +358,7 @@ router.get('/:applicationId/documents', async (req, res) => {
     const { applicationId } = req.params;
     const expiresIn = parseInt(req.query.expiresIn as string) || 3600; // 1 hour default
 
-    const application = await Application.findOne({ applicationId });
+    const application = await Application.findById(applicationId);
 
     if (!application) {
       return res.status(404).json({
@@ -460,8 +460,8 @@ router.get('/:applicationId/documents/signed', async (req, res) => {
     const { applicationId } = req.params;
     const expiresIn = parseInt(req.query.expiresIn as string) || 3600;
 
-    const application = await Application.findOne({ applicationId });
-
+    const application = await Application.findById(applicationId);
+    
     if (!application) {
       return res.status(404).json({
         success: false,
