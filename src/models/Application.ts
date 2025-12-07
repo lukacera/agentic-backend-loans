@@ -52,6 +52,56 @@ const sbaApplicationSchema = new Schema<ApplicationDocument>({
     default: ApplicationStatus.SUBMITTED,
     required: true
   },
+
+  // S3 Document Storage
+  unsignedDocuments: [{
+    fileName: { type: String, required: true },
+    s3Key: { type: String, required: true },
+    s3Url: { type: String },
+    uploadedAt: { type: Date, default: Date.now }
+  }],
+  signedDocuments: [{
+    fileName: { type: String, required: true },
+    s3Key: { type: String, required: true },
+    s3Url: { type: String },
+    uploadedAt: { type: Date, default: Date.now },
+    signedAt: { type: Date }
+  }],
+  documentsUploadedToS3: {
+    type: Boolean,
+    default: false
+  },
+  s3UploadedAt: {
+    type: Date
+  },
+
+  // Signing Metadata
+  signingProvider: {
+    type: String,
+    enum: ['docusign', 'hellosign', 'adobe_sign', 'manual', null],
+    default: null
+  },
+  signingRequestId: {
+    type: String
+  },
+  signingStatus: {
+    type: String,
+    enum: ['not_started', 'pending', 'completed', 'declined', 'expired'],
+    default: 'not_started'
+  },
+  signedBy: {
+    type: String
+  },
+  signedDate: {
+    type: Date
+  },
+
+  // Email Tracking
+  emailSentAt: {
+    type: Date
+  },
+
+  // Legacy fields (keep for backwards compatibility)
   documentsGenerated: {
     type: Boolean,
     default: false

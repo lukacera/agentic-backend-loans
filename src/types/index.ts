@@ -285,14 +285,41 @@ export interface SBAApplicationData {
   yearFounded: number;
 }
 
+export interface DocumentStorageInfo {
+  fileName: string;
+  s3Key: string;
+  s3Url?: string;
+  uploadedAt: Date;
+  signedAt?: Date;
+}
+
 export interface SBAApplication {
   _id?: string;
   applicationId: string;
   applicantData: SBAApplicationData;
   status: ApplicationStatus;
   documentsGenerated: boolean;
-  emailSent: boolean;
   generatedDocuments: string[];
+
+  // S3 Document Storage
+  unsignedDocuments: DocumentStorageInfo[];
+  signedDocuments: DocumentStorageInfo[];
+  documentsUploadedToS3: boolean;
+  s3UploadedAt?: Date;
+
+  // Signing Metadata
+  signingProvider?: 'docusign' | 'hellosign' | 'adobe_sign' | 'manual' | null;
+  signingRequestId?: string;
+  signingStatus: 'not_started' | 'pending' | 'completed' | 'declined' | 'expired';
+  signedBy?: string;
+  signedDate?: Date;
+
+  // Email Tracking
+  emailSentAt?: Date;
+
+  // Legacy fields (keep for backwards compatibility)
+  emailSent: boolean;
+
   createdAt: Date;
   updatedAt: Date;
   bankEmail: string;
@@ -302,6 +329,8 @@ export enum ApplicationStatus {
   SUBMITTED = 'submitted',
   PROCESSING = 'processing',
   DOCUMENTS_GENERATED = 'documents_generated',
+  AWAITING_SIGNATURE = 'awaiting_signature',
+  SIGNED = 'signed',
   SENT_TO_BANK = 'sent_to_bank',
   UNDER_REVIEW = 'under_review',
   APPROVED = 'approved',
