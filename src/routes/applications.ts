@@ -352,8 +352,8 @@ router.get('/status/counts', async (req, res) => {
   }
 });
 
-// GET /api/applications/:applicationId/documents - Get unsigned document URLs
-router.get('/:applicationId/documents', async (req, res) => {
+// GET /api/applications/:applicationId/documents/unsigned - Explicit unsigned documents endpoint
+router.get('/:applicationId/documents/unsigned', async (req, res) => {
   try {
     const { applicationId } = req.params;
     const expiresIn = parseInt(req.query.expiresIn as string) || 3600; // 1 hour default
@@ -367,7 +367,6 @@ router.get('/:applicationId/documents', async (req, res) => {
       });
     }
 
-    // Check if documents are ready
     if (application.unsignedDocuments.length === 0) {
       return res.status(404).json({
         success: false,
@@ -376,7 +375,6 @@ router.get('/:applicationId/documents', async (req, res) => {
       });
     }
 
-    // Generate pre-signed URLs for each document
     const documentsWithUrls = await Promise.all(
       application.unsignedDocuments.map(async (doc) => {
         const presignedUrl = await generatePresignedUrl(doc.s3Key, expiresIn);
@@ -397,9 +395,8 @@ router.get('/:applicationId/documents', async (req, res) => {
         documents: documentsWithUrls
       }
     });
-
   } catch (error) {
-    console.error('Error fetching documents:', error);
+    console.error('Error fetching unsigned documents:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error'
