@@ -409,6 +409,71 @@ router.get('/:applicationId/documents/unsigned', async (req, res) => {
   }
 });
 
+router.get('/:applicationId/documents/user-provided', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const expiresIn = parseInt(req.query.expiresIn as string) || 3600;
+    const fileType = req.query.fileType as UserProvidedDocumentType | undefined;
+
+    if (fileType && !Object.values(UserProvidedDocumentType).includes(fileType)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid fileType. Must be one of: ${Object.values(UserProvidedDocumentType).join(', ')}`
+      });
+    }
+
+    const application = await Application.findById(applicationId);
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found'
+      });
+    }
+
+    const userProvidedDocs = fileType
+      ? application.userProvidedDocuments.filter((doc) => doc.fileType === fileType)
+      : application.userProvidedDocuments;
+
+    if (userProvidedDocs.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: fileType ? `No documents found for fileType ${fileType}` : 'No user provided documents found',
+        status: application.status
+      });
+    }
+
+    const documentsWithUrls = await Promise.all(
+      userProvidedDocs.map(async (doc) => {
+        const presignedUrl = await generatePresignedUrl(doc.s3Key, expiresIn);
+        return {
+          fileName: doc.fileName,
+          fileType: doc.fileType,
+          url: presignedUrl,
+          uploadedAt: doc.uploadedAt,
+          expiresIn
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      data: {
+        applicationId,
+        status: application.status,
+        documents: documentsWithUrls
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching user provided documents:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
 router.post('/:applicationId/documents/user-provided', upload.array('documents', 10), async (req, res) => {
   try {
     const { applicationId } = req.params;
