@@ -162,12 +162,7 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
   },
   generatedDocuments: [{
     type: String
-  }],
-  bankEmail: {
-    type: String,
-    required: true,
-    default: 'lukaceranic38@gmail.com'
-  }
+  }]
 }, {
   timestamps: true, // Automatically adds createdAt and updatedAt
 });

@@ -354,7 +354,6 @@ export interface SBAApplication extends Document {
 
   createdAt: Date;
   updatedAt: Date;
-  bankEmail: string;
 }
 
 export enum ApplicationStatus {

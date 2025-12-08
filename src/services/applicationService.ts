@@ -44,8 +44,7 @@ export const createApplication = async (
       status: ApplicationStatus.SUBMITTED,
       documentsGenerated: false,
       emailSent: false,
-      generatedDocuments: [],
-      bankEmail: process.env.BANK_EMAIL || 'lukaceranic38@gmail.com'
+      generatedDocuments: []
     });
     
     await application.save();
