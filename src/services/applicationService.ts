@@ -16,7 +16,8 @@ import { fillPDFForm, mapDataWithAI, extractFormFields } from './pdfFormProcesso
 import {
   uploadDocumentWithRetry,
   downloadDocument,
-  generatePresignedUrl
+  generatePresignedUrl,
+  deleteDocument
 } from './s3Service.js';
 
 const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
@@ -202,8 +203,7 @@ const uploadDocumentsToS3 = async (
       const s3Result = await uploadDocumentWithRetry(
         applicationId,
         fileName,
-        fileBuffer,
-        docType
+        fileBuffer
       );
 
       uploadedDocs.push({
@@ -322,9 +322,9 @@ export const handleSignedDocuments = async (
       throw new Error('Application not found');
     }
 
-    if (application.status !== ApplicationStatus.AWAITING_SIGNATURE) {
-      throw new Error(`Cannot process signed documents. Current status: ${application.status}`);
-    }
+    // if (application.status !== ApplicationStatus.AWAITING_SIGNATURE) {
+    //   throw new Error(`Cannot process signed documents. Current status: ${application.status}`);
+    // }
 
     // Upload signed documents to S3
     const uploadedSignedDocs: DocumentStorageInfo[] = [];
@@ -335,8 +335,7 @@ export const handleSignedDocuments = async (
       const s3Result = await uploadDocumentWithRetry(
         applicationId,
         doc.fileName,
-        doc.buffer,
-        'signed'
+        doc.buffer
       );
 
       uploadedSignedDocs.push({
@@ -348,11 +347,12 @@ export const handleSignedDocuments = async (
       });
     }
 
-    // Update application
-    application.signedDocuments = uploadedSignedDocs;
+    // Push signed documents to array instead of replacing
+    application.signedDocuments.push(...uploadedSignedDocs);
     application.status = ApplicationStatus.SIGNED;
     application.signingStatus = 'completed';
     application.signedDate = new Date();
+    application.markModified('signedDocuments');
 
     if (signingMetadata) {
       application.signedBy = signingMetadata.signedBy;
@@ -397,6 +397,156 @@ const downloadSignedDocumentsFromS3 = async (
   }
 
   return documentBuffers;
+};
+
+export const markUnsignedDocumentAsSigned = async (
+  applicationId: string,
+  options: {
+    fileName?: string;
+    s3Key?: string;
+    signedBy?: string;
+    signingProvider?: string;
+    signingRequestId?: string;
+    signedAt?: string | Date;
+    signedS3Key?: string;
+    signedS3Url?: string;
+  }
+): Promise<SBAApplication> => {
+  const {
+    fileName,
+    s3Key,
+    signedBy,
+    signingProvider,
+    signingRequestId,
+    signedAt,
+    signedS3Key,
+    signedS3Url
+  } = options;
+
+  if (!fileName && !s3Key) {
+    throw new Error('Document identifier (fileName or s3Key) is required');
+  }
+
+  const application = await Application.findById(applicationId);
+
+  if (!application) {
+    throw new Error('Application not found');
+  }
+
+  const unsignedIndex = application.unsignedDocuments.findIndex((doc) => {
+    if (s3Key && doc.s3Key === s3Key) {
+      return true;
+    }
+
+    if (fileName && doc.fileName === fileName) {
+      return true;
+    }
+
+    return false;
+  });
+
+  if (unsignedIndex === -1) {
+    throw new Error('Unsigned document not found');
+  }
+
+  const unsignedDoc = application.unsignedDocuments.splice(unsignedIndex, 1)[0];
+  const signedAtValue = signedAt ? new Date(signedAt) : new Date();
+
+  const signedDoc: DocumentStorageInfo = {
+    fileName: unsignedDoc.fileName,
+    s3Key: signedS3Key ?? unsignedDoc.s3Key,
+    s3Url: signedS3Url ?? unsignedDoc.s3Url,
+    uploadedAt: unsignedDoc.uploadedAt,
+    signedAt: signedAtValue
+  };
+
+  application.signedDocuments.push(signedDoc);
+  application.markModified('unsignedDocuments');
+  application.markModified('signedDocuments');
+
+  if (signedBy) {
+    application.signedBy = signedBy;
+  }
+
+  if (signingProvider) {
+    application.signingProvider = signingProvider as any;
+  }
+
+  if (signingRequestId) {
+    application.signingRequestId = signingRequestId;
+  }
+
+  if (application.unsignedDocuments.length === 0) {
+    application.status = ApplicationStatus.SIGNED;
+    application.signingStatus = 'completed';
+    application.signedDate = signedAtValue;
+  } else {
+    application.status = ApplicationStatus.AWAITING_SIGNATURE;
+    application.signingStatus = 'pending';
+  }
+
+  await application.save();
+
+  return application;
+};
+
+export const deleteSignedDocument = async (
+  applicationId: string,
+  options: {
+    fileName?: string;
+    s3Key?: string;
+  }
+): Promise<SBAApplication> => {
+  const { fileName, s3Key } = options;
+
+  if (!fileName && !s3Key) {
+    throw new Error('Document identifier (fileName or s3Key) is required');
+  }
+
+  const application = await Application.findById(applicationId);
+
+  if (!application) {
+    throw new Error('Application not found');
+  }
+
+  const signedIndex = application.signedDocuments.findIndex((doc) => {
+    if (s3Key && doc.s3Key === s3Key) {
+      return true;
+    }
+
+    if (fileName && doc.fileName === fileName) {
+      return true;
+    }
+
+    return false;
+  });
+
+  if (signedIndex === -1) {
+    throw new Error('Signed document not found');
+  }
+
+  const [signedDoc] = application.signedDocuments.splice(signedIndex, 1);
+
+  try {
+    await deleteDocument(signedDoc.s3Key);
+  } catch (error) {
+    // Reinsert document to maintain consistency if delete fails
+    application.signedDocuments.splice(signedIndex, 0, signedDoc);
+    throw error;
+  }
+
+  application.markModified('signedDocuments');
+
+  if (application.signedDocuments.length === 0) {
+    application.status = ApplicationStatus.AWAITING_SIGNATURE;
+    application.signingStatus = 'pending';
+    application.signedDate = undefined;
+    application.signedBy = undefined;
+  }
+
+  await application.save();
+
+  return application;
 };
 
 // Send email with S3 documents

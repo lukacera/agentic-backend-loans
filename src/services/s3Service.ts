@@ -43,9 +43,8 @@ export const validateS3Config = (): void => {
 export const generateS3Key = (
   applicationId: string,
   fileName: string,
-  docType: 'unsigned' | 'signed'
 ): string => {
-  return `applications/${applicationId}/${docType}/${fileName}`;
+  return `applications/${applicationId}/${fileName}`;
 };
 
 /**
@@ -60,10 +59,9 @@ export const uploadDocument = async (
   applicationId: string,
   fileName: string,
   buffer: Buffer,
-  docType: 'unsigned' | 'signed'
 ): Promise<{ key: string; url: string }> => {
   try {
-    const key = generateS3Key(applicationId, fileName, docType);
+    const key = generateS3Key(applicationId, fileName);
 
     const command = new PutObjectCommand({
       Bucket: BUCKET_NAME,
@@ -72,7 +70,6 @@ export const uploadDocument = async (
       ContentType: 'application/pdf',
       Metadata: {
         applicationId,
-        docType,
         uploadedAt: new Date().toISOString()
       }
     });
@@ -103,14 +100,13 @@ export const uploadDocumentWithRetry = async (
   applicationId: string,
   fileName: string,
   buffer: Buffer,
-  docType: 'unsigned' | 'signed',
   maxRetries: number = 3
 ): Promise<{ key: string; url: string }> => {
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      return await uploadDocument(applicationId, fileName, buffer, docType);
+      return await uploadDocument(applicationId, fileName, buffer);
     } catch (error) {
       lastError = error instanceof Error ? error : new Error('Unknown error');
       console.error(`Upload attempt ${attempt} failed:`, error);
@@ -203,9 +199,6 @@ export const deleteDocument = async (s3Key: string): Promise<boolean> => {
     });
 
     await s3Client.send(command);
-
-    console.log(`Document deleted from S3: ${s3Key}`);
-
     return true;
   } catch (error) {
     console.error('Error deleting document from S3:', error);

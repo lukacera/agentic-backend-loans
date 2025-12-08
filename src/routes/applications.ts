@@ -7,6 +7,8 @@ import {
   getApplicationByPhone,
   getApplications,
   handleSignedDocuments,
+  markUnsignedDocumentAsSigned,
+  deleteSignedDocument,
   submitApplicationToBank
 } from '../services/applicationService.js';
 import {
@@ -404,6 +406,66 @@ router.get('/:applicationId/documents/unsigned', async (req, res) => {
   }
 });
 
+// POST /api/applications/:applicationId/documents/unsigned/mark-signed - Move unsigned document to signed collection
+router.post('/:applicationId/documents/unsigned/mark-signed', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const {
+      fileName,
+      s3Key,
+      signedBy,
+      signingProvider,
+      signingRequestId,
+      signedAt,
+      signedS3Key,
+      signedS3Url
+    } = req.body ?? {};
+
+    if (!fileName && !s3Key) {
+      return res.status(400).json({
+        success: false,
+        error: 'fileName or s3Key is required to mark a document as signed'
+      });
+    }
+
+    const application = await markUnsignedDocumentAsSigned(applicationId, {
+      fileName,
+      s3Key,
+      signedBy,
+      signingProvider,
+      signingRequestId,
+      signedAt,
+      signedS3Key,
+      signedS3Url
+    });
+
+    res.json({
+      success: true,
+      data: {
+        applicationId,
+        status: application.status,
+        unsignedDocuments: application.unsignedDocuments,
+        signedDocuments: application.signedDocuments
+      }
+    });
+
+  } catch (error) {
+    console.error('Error marking unsigned document as signed:', error);
+
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    const statusCode = message === 'Application not found' || message === 'Unsigned document not found'
+      ? 404
+      : message === 'Document identifier (fileName or s3Key) is required'
+        ? 400
+        : 500;
+
+    res.status(statusCode).json({
+      success: false,
+      error: message
+    });
+  }
+});
+
 // POST /api/applications/:applicationId/documents/signed - Upload signed documents
 router.post('/:applicationId/documents/signed', upload.array('documents', 10), async (req, res) => {
   try {
@@ -430,6 +492,7 @@ router.post('/:applicationId/documents/signed', upload.array('documents', 10), a
       buffer: file.buffer
     }));
 
+    console.log(`Uploading ${signedDocumentBuffers.length} signed documents for application ${applicationId}`);
     // Process signed documents
     const result = await handleSignedDocuments(
       applicationId,
@@ -447,6 +510,51 @@ router.post('/:applicationId/documents/signed', upload.array('documents', 10), a
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// DELETE /api/applications/:applicationId/documents/signed - Delete signed document from DB and S3
+router.delete('/:applicationId/documents/signed', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const fileName = (req.body?.fileName || req.query.fileName) as string | undefined;
+    const s3Key = (req.body?.s3Key || req.query.s3Key) as string | undefined;
+
+    if (!fileName && !s3Key) {
+      return res.status(400).json({
+        success: false,
+        error: 'fileName or s3Key is required to delete a signed document'
+      });
+    }
+
+    const application = await deleteSignedDocument(applicationId, {
+      fileName,
+      s3Key
+    });
+
+    res.json({
+      success: true,
+      data: {
+        applicationId,
+        status: application.status,
+        signedDocuments: application.signedDocuments
+      }
+    });
+
+  } catch (error) {
+    console.error('Error deleting signed document:', error);
+
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    const statusCode = message === 'Application not found' || message === 'Signed document not found'
+      ? 404
+      : message === 'Document identifier (fileName or s3Key) is required'
+        ? 400
+        : 500;
+
+    res.status(statusCode).json({
+      success: false,
+      error: message
     });
   }
 });
