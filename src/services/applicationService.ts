@@ -448,14 +448,14 @@ export const addUserProvidedDocuments = async (
 };
 
 // Download signed documents from S3
-const downloadSignedDocumentsFromS3 = async (
-  signedDocuments: DocumentStorageInfo[]
+const downloadDocumentsFromS3 = async (
+  documents: DocumentStorageInfo[]
 ): Promise<Array<{ fileName: string; buffer: Buffer }>> => {
-  const documentBuffers = [];
+  const documentBuffers: Array<{ fileName: string; buffer: Buffer }> = [];
 
-  for (const doc of signedDocuments) {
+  for (const doc of documents) {
     try {
-      console.log(`Downloading signed document from S3: ${doc.fileName}`);
+      console.log(`Downloading document from S3: ${doc.fileName}`);
       const buffer = await downloadDocument(doc.s3Key);
       documentBuffers.push({
         fileName: doc.fileName,
@@ -646,9 +646,10 @@ const sendApplicationEmailWithS3Docs = async (
         `Annual revenue: $${application.applicantData.annualRevenue.toLocaleString()}`,
         `Credit score: ${application.applicantData.creditScore}`,
         'All required SBA forms completed, signed, and attached',
+        'Supporting applicant-provided documents attached',
         'Ready for review and processing'
       ],
-      context: `Signed loan application documents for ${application.applicantData.businessName}. All documents have been electronically signed and are ready for bank review.`
+      context: `Signed loan application documents and supporting materials for ${application.applicantData.businessName}. All documents have been electronically signed and include applicant-provided attachments for bank review.`
     };
 
     const emailResult = await composeEmail(emailAgent, emailComposition);
@@ -682,20 +683,25 @@ export const submitApplicationToBank = async (
       throw new Error('Application not found');
     }
 
-    if (application.status !== ApplicationStatus.SIGNED) {
-      throw new Error(`Cannot submit to bank. Documents must be signed first. Current status: ${application.status}`);
-    }
-
     if (application.signedDocuments.length === 0) {
       throw new Error('No signed documents found');
     }
 
-    // Download signed documents from S3
-    const documentBuffers = await downloadSignedDocumentsFromS3(
+    // Download documents from S3 (signed + supporting)
+    const signedDocumentBuffers = await downloadDocumentsFromS3(
       application.signedDocuments
     );
 
-    // Send email with signed documents
+    const userProvidedDocumentBuffers = application.userProvidedDocuments.length > 0
+      ? await downloadDocumentsFromS3(application.userProvidedDocuments)
+      : [];
+
+    const documentBuffers = [
+      ...signedDocumentBuffers,
+      ...userProvidedDocumentBuffers
+    ];
+
+    // Send email with all documents
     await sendApplicationEmailWithS3Docs(application, documentBuffers);
 
     // Update application

@@ -458,3 +458,51 @@ export interface WebSocketEventPayload {
     phoneNumber?: string;
   };
 }
+
+// ==============================
+// BANK TYPES
+// ==============================
+
+export interface BankContact {
+  name: string;
+  email: string;
+  position: string;
+}
+
+export interface BankDocumentRequirements {
+  taxReturn: boolean;
+  pAndL: boolean; // Using pAndL instead of p&l for valid JS property name
+}
+
+export interface BankRequirements {
+  minimumCreditScore: number;
+  minimumYearsInBusiness: number;
+  documentsRequired: BankDocumentRequirements;
+}
+
+export interface Bank extends Document {
+  name: string;
+  contacts: BankContact;
+  requirements: BankRequirements;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateBankRequest {
+  name: string;
+  contacts: BankContact;
+  requirements: BankRequirements;
+}
+
+export interface UpdateBankRequest {
+  name?: string;
+  contacts?: Partial<BankContact>;
+  requirements?: Partial<BankRequirements>;
+}
+
+export interface BankListResponse {
+  banks: Bank[];
+  total: number;
+  page: number;
+  pages: number;
+}

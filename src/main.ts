@@ -9,6 +9,7 @@ import cors from 'cors';
 import docsRouter from './routes/docs.js';
 import emailRouter from './routes/emails.js';
 import applicationsRouter from './routes/applications.js';
+import bankRouter from './routes/banks.js';
 import pollEmails from './services/poller.js';
 import mongoose from 'mongoose';
 import websocketService from './services/websocket.js';
@@ -692,6 +693,7 @@ function getUserData(callId: string) {
 app.use('/api/docs', docsRouter);
 app.use('/api/emails', emailRouter);
 app.use('/api/applications', applicationsRouter);
+app.use('/api/banks', bankRouter);
 
 app.post('/api/chat', async (req, res) => {
   try {
