@@ -1,5 +1,5 @@
 import { Schema, model, Document } from 'mongoose';
-import { SBAApplication, ApplicationStatus, UserProvidedDocumentType } from '../types/index.js';
+import { SBAApplication, ApplicationStatus, UserProvidedDocumentType, BankSubmissionStatus } from '../types/index.js';
 
 const sbaApplicationSchema = new Schema<SBAApplication>({
   applicantData: {
@@ -41,6 +41,25 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
     default: ApplicationStatus.SUBMITTED,
     required: true
   },
+
+  // Bank Submissions
+  banks: [{
+    bankId: {
+      type: String,
+      required: true
+    },
+    status: {
+      type: String,
+      enum: Object.values(BankSubmissionStatus),
+      default: BankSubmissionStatus.SUBMITTED,
+      required: true
+    },
+    submittedAt: {
+      type: Date,
+      default: Date.now,
+      required: true
+    }
+  }],
 
   // S3 Document Storage
   unsignedDocuments: [{
@@ -125,5 +144,7 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
 // Add indexes for common queries
 sbaApplicationSchema.index({ status: 1, createdAt: -1 });
 sbaApplicationSchema.index({ 'applicantData.creditScore': 1 });
+sbaApplicationSchema.index({ 'banks.bankId': 1 });
+sbaApplicationSchema.index({ 'banks.status': 1 });
 
 export const Application = model<SBAApplication>('Application', sbaApplicationSchema);

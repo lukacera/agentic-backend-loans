@@ -10,6 +10,12 @@ const bankSchema = new Schema<BankType>({
     minlength: [2, 'Bank name must be at least 2 characters'],
     maxlength: [100, 'Bank name cannot exceed 100 characters']
   },
+  logo: {
+    type: String,
+    required: false,
+    trim: true,
+    match: [/^https?:\/\/.+/, 'Logo must be a valid URL']
+  },
   contacts: {
     name: {
       type: String,

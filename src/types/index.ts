@@ -301,11 +301,26 @@ export interface UserProvidedDocumentInfo extends DocumentStorageInfo {
   fileType: UserProvidedDocumentType;
 }
 
+export enum BankSubmissionStatus {
+  SUBMITTED = 'submitted',
+  ACCEPTED = 'accepted',
+  REJECTED = 'rejected'
+}
+
+export interface BankSubmission {
+  bankId: string;
+  status: BankSubmissionStatus;
+  submittedAt: Date;
+}
+
 export interface SBAApplication extends Document {
   applicantData: SBAApplicationData;
   status: ApplicationStatus;
   documentsGenerated: boolean;
   generatedDocuments: string[];
+
+  // Bank Submissions
+  banks: BankSubmission[];
 
   // S3 Document Storage
   unsignedDocuments: DocumentStorageInfo[];
@@ -482,6 +497,7 @@ export interface BankRequirements {
 
 export interface Bank extends Document {
   name: string;
+  logo?: string;
   contacts: BankContact;
   requirements: BankRequirements;
   createdAt: Date;
@@ -490,12 +506,14 @@ export interface Bank extends Document {
 
 export interface CreateBankRequest {
   name: string;
+  logo?: string;
   contacts: BankContact;
   requirements: BankRequirements;
 }
 
 export interface UpdateBankRequest {
   name?: string;
+  logo?: string;
   contacts?: Partial<BankContact>;
   requirements?: Partial<BankRequirements>;
 }
