@@ -8,6 +8,8 @@ import {
   ApplicationResponse,
   DocumentStorageInfo,
   SBAApplication,
+  UserProvidedDocumentType,
+  UserProvidedDocumentInfo,
 } from '../types/index.js';
 import { sendEmail } from './emailSender.js';
 import { composeEmail, createEmailAgent } from '../agents/EmailAgent.js';
@@ -372,6 +374,55 @@ export const handleSignedDocuments = async (
 
   } catch (error) {
     console.error('Error handling signed documents:', error);
+    throw error;
+  }
+};
+
+export const addUserProvidedDocuments = async (
+  applicationId: string,
+  documents: Array<{ fileName: string; buffer: Buffer; fileType: UserProvidedDocumentType }>
+): Promise<{ application: SBAApplication; uploadedDocuments: UserProvidedDocumentInfo[] }> => {
+  try {
+    const application = await Application.findById(applicationId);
+
+    if (!application) {
+      throw new Error('Application not found');
+    }
+
+    if (documents.length === 0) {
+      throw new Error('No documents provided');
+    }
+
+    const uploadedDocuments: UserProvidedDocumentInfo[] = [];
+
+    for (const doc of documents) {
+      const s3Result = await uploadDocumentWithRetry(
+        applicationId,
+        doc.fileName,
+        doc.buffer
+      );
+
+      uploadedDocuments.push({
+        fileType: doc.fileType,
+        fileName: doc.fileName,
+        s3Key: s3Result.key,
+        s3Url: s3Result.url,
+        uploadedAt: new Date()
+      });
+    }
+
+    application.userProvidedDocuments.push(...uploadedDocuments);
+    application.markModified('userProvidedDocuments');
+
+    await application.save();
+
+    return {
+      application,
+      uploadedDocuments
+    };
+
+  } catch (error) {
+    console.error('Error uploading user provided documents:', error);
     throw error;
   }
 };

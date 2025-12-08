@@ -9,11 +9,13 @@ import {
   handleSignedDocuments,
   markUnsignedDocumentAsSigned,
   deleteSignedDocument,
-  submitApplicationToBank
+  submitApplicationToBank,
+  addUserProvidedDocuments
 } from '../services/applicationService.js';
 import {
   ApplicationSubmissionRequest,
-  ApplicationStatus
+  ApplicationStatus,
+  UserProvidedDocumentType
 } from '../types/index.js';
 import { Application } from '../models/Application.js';
 import { generatePresignedUrl } from '../services/s3Service.js';
@@ -399,9 +401,110 @@ router.get('/:applicationId/documents/unsigned', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching unsigned documents:', error);
+
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+router.post('/:applicationId/documents/user-provided', upload.array('documents', 10), async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const files = req.files as Express.Multer.File[];
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No files uploaded'
+      });
+    }
+
+    const extractTypeValues = (value: unknown): string[] => {
+      if (Array.isArray(value)) {
+        return value.map((entry) => String(entry));
+      }
+      if (typeof value === 'string') {
+        return [value];
+      }
+      if (value === undefined || value === null) {
+        return [];
+      }
+      return [String(value)];
+    };
+
+    const rawTypeValues = extractTypeValues(req.body?.fileTypes ?? req.body?.fileType)
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+
+    if (rawTypeValues.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: `fileType is required and must be one of: ${Object.values(UserProvidedDocumentType).join(', ')}`
+      });
+    }
+
+    if (rawTypeValues.length !== 1 && rawTypeValues.length !== files.length) {
+      return res.status(400).json({
+        success: false,
+        error: 'Provide either a single fileType for all documents or one per document'
+      });
+    }
+
+    const normalizedTypes = rawTypeValues.length === 1
+      ? Array(files.length).fill(rawTypeValues[0])
+      : rawTypeValues;
+
+    if (normalizedTypes.length !== files.length) {
+      return res.status(400).json({
+        success: false,
+        error: 'Number of fileType values must match uploaded files'
+      });
+    }
+
+    const validTypes = new Set(Object.values(UserProvidedDocumentType));
+    const invalidTypes = normalizedTypes.filter((value) => !validTypes.has(value as UserProvidedDocumentType));
+
+    if (invalidTypes.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid fileType values: ${invalidTypes.join(', ')}`
+      });
+    }
+
+    const documents = files.map((file, index) => ({
+      fileName: file.originalname,
+      buffer: file.buffer,
+      fileType: normalizedTypes[index] as UserProvidedDocumentType
+    }));
+
+    const { application, uploadedDocuments } = await addUserProvidedDocuments(applicationId, documents);
+    const serializedApplication = application.toObject();
+
+    res.json({
+      success: true,
+      data: {
+        applicationId,
+        status: serializedApplication.status,
+        uploadedDocuments,
+        userProvidedDocuments: serializedApplication.userProvidedDocuments
+      }
+    });
+  } catch (error) {
+    console.error('Error uploading user provided documents:', error);
+
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    const statusCode =
+      message === 'Application not found'
+        ? 404
+        : message === 'No documents provided'
+          ? 400
+          : 500;
+
+    res.status(statusCode).json({
+      success: false,
+      error: message
     });
   }
 });

@@ -283,12 +283,22 @@ export interface SBAApplicationData {
   yearFounded: number;
 }
 
+export enum UserProvidedDocumentType {
+  TAX_RETURN = 'taxReturn',
+  L_AND_P = 'L&P'
+}
+
 export interface DocumentStorageInfo {
   fileName: string;
   s3Key: string;
   s3Url?: string;
   uploadedAt: Date;
   signedAt?: Date;
+  fileType?: UserProvidedDocumentType;
+}
+
+export interface UserProvidedDocumentInfo extends DocumentStorageInfo {
+  fileType: UserProvidedDocumentType;
 }
 
 export interface SBAApplication extends Document {
@@ -300,6 +310,7 @@ export interface SBAApplication extends Document {
   // S3 Document Storage
   unsignedDocuments: DocumentStorageInfo[];
   signedDocuments: DocumentStorageInfo[];
+  userProvidedDocuments: UserProvidedDocumentInfo[];
   documentsUploadedToS3: boolean;
   s3UploadedAt?: Date;
 
