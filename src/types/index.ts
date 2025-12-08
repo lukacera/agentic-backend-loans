@@ -308,7 +308,7 @@ export enum BankSubmissionStatus {
 }
 
 export interface BankSubmission {
-  bankId: string;
+  bank: string;
   status: BankSubmissionStatus;
   submittedAt: Date;
 }

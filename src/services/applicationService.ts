@@ -666,7 +666,7 @@ export const submitApplicationToBank = async (
 
         // Track successful submission
         bankSubmissions.push({
-          bankId: bank._id.toString(),
+          bank: bank._id.toString(),
           status: 'submitted' as any,
           submittedAt: new Date()
         });
