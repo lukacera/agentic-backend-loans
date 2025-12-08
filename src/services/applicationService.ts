@@ -393,6 +393,26 @@ export const addUserProvidedDocuments = async (
       throw new Error('No documents provided');
     }
 
+    // Prevent duplicate uploads for the same document type
+    const seenTypes = new Set<UserProvidedDocumentType>();
+
+    for (const doc of documents) {
+      if (seenTypes.has(doc.fileType)) {
+        throw new Error(`${doc.fileType} file has already been uploaded`);
+      }
+      seenTypes.add(doc.fileType);
+    }
+
+    const existingTypes = new Set(
+      application.userProvidedDocuments.map((doc) => doc.fileType)
+    );
+
+    for (const doc of documents) {
+      if (existingTypes.has(doc.fileType)) {
+        throw new Error(`${doc.fileType} file has already been uploaded`);
+      }
+    }
+
     const uploadedDocuments: UserProvidedDocumentInfo[] = [];
 
     for (const doc of documents) {

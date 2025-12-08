@@ -500,7 +500,9 @@ router.post('/:applicationId/documents/user-provided', upload.array('documents',
         ? 404
         : message === 'No documents provided'
           ? 400
-          : 500;
+          : message.endsWith('file has already been uploaded')
+            ? 409
+            : 500;
 
     res.status(statusCode).json({
       success: false,
