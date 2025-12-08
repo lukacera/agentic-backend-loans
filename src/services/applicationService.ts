@@ -1,4 +1,3 @@
-import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 import * as fs from 'fs-extra';
 import { Application } from '../models/Application.js';
@@ -18,7 +17,6 @@ import { fillPDFForm, mapDataWithAI, extractFormFields } from './pdfFormProcesso
 import {
   uploadDocumentWithRetry,
   downloadDocument,
-  generatePresignedUrl,
   deleteDocument
 } from './s3Service.js';
 import { recommendBank } from './bankService.js';
@@ -237,73 +235,6 @@ const cleanupLocalFiles = async (filePaths: string[]): Promise<void> => {
       console.error(`Failed to clean up file ${filePath}:`, error);
       // Don't throw - cleanup failures shouldn't break the flow
     }
-  }
-};
-
-// Send application email with documents
-const sendApplicationEmail = async (
-  application: SBAApplication,
-  documentPaths: string[]
-): Promise<void> => {
-  try {
-    
-    // Prepare email attachments
-    const attachments = [];
-    
-    for (const docPath of documentPaths) {
-      if (await fs.pathExists(docPath)) {
-        const fileName = path.basename(docPath);
-        
-        // Use file path directly - more efficient than base64 encoding
-        attachments.push({
-          filename: fileName,
-          path: docPath,
-          contentType: 'application/pdf'
-        });
-        
-      } else {
-        console.warn(`Document file not found: ${docPath}`);
-      }
-    }
-    
-    // Generate professional email content using EmailAgent
-    const emailAgent = createEmailAgent();
-    
-    const emailComposition = {
-      recipients: [application.bankEmail],
-      subject: `SBA Loan Application Submission - Application ID: ${application._id}`,
-      purpose: 'NEW LOAN APPLICATION' as any,
-      tone: 'PROFESSIONAL' as any,
-      keyPoints: [
-        `New SBA loan application`,
-        `Annual revenue: $${application.applicantData.annualRevenue.toLocaleString()}`,
-        `Credit score: ${application.applicantData.creditScore}`,
-        'All required SBA forms completed and attached',
-        'Ready for review and processing'
-      ],
-      context: 'We are a tool which helps businesses apply for SBA loans by generating necessary documents and composing emails to banks. All needed info is there, if they need anything else, ask them. Be concise and professional.' 
-    };
-    
-    const emailResult = await composeEmail(emailAgent, emailComposition);
-    
-    if (emailResult.success && emailResult.data) {
-      // Send the email with attachments
-      
-      const emailInfo = await sendEmail({
-        to: [application.bankEmail],
-        subject: emailResult.data.subject,
-        html: emailResult.data.body,
-        text: emailResult.data.body.replace(/<[^>]*>/g, ''), // Strip HTML for text version
-        attachments
-      });
-      
-    } else {
-      throw new Error(`Failed to compose email: ${emailResult.error}`);
-    }
-    
-  } catch (error) {
-    console.error('Error sending application email:', error);
-    throw error;
   }
 };
 
@@ -629,7 +560,7 @@ const sendApplicationEmailWithS3Docs = async (
 ): Promise<void> => {
   try {
     // Use provided bank email or fall back to application's bankEmail
-    const recipientEmail = bankEmail || application.bankEmail;
+    const recipientEmail = bankEmail;
     const recipient = bankName || 'Bank';
 
     // Prepare email attachments from buffers
@@ -643,7 +574,7 @@ const sendApplicationEmailWithS3Docs = async (
     const emailAgent = createEmailAgent();
 
     const emailComposition = {
-      recipients: [recipientEmail],
+      recipients: [recipientEmail ?? ""],
       subject: `SBA Loan Application Submission - ${application.applicantData.businessName}`,
       purpose: 'NEW LOAN APPLICATION' as any,
       tone: 'PROFESSIONAL' as any,
@@ -662,7 +593,7 @@ const sendApplicationEmailWithS3Docs = async (
 
     if (emailResult.success && emailResult.data) {
       await sendEmail({
-        to: [recipientEmail],
+        to: [recipientEmail ?? ""],
         subject: emailResult.data.subject,
         html: emailResult.data.body,
         text: emailResult.data.body.replace(/<[^>]*>/g, ''),
