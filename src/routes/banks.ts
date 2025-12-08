@@ -5,7 +5,8 @@ import {
   getBanks,
   updateBank,
   deleteBank,
-  getBankByName
+  getBankByName,
+  recommendBank
 } from '../services/bankService.js';
 import { CreateBankRequest, UpdateBankRequest } from '../types/index.js';
 
@@ -206,6 +207,52 @@ router.get('/search/:name', async (req, res) => {
     });
   } catch (error) {
     console.error('Error searching bank:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// RECOMMEND - POST /api/banks/recommend
+router.post('/recommend', async (req, res) => {
+  try {
+    const { creditScore, yearsInBusiness } = req.body;
+
+    // Validate required fields
+    if (creditScore === undefined || yearsInBusiness === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: creditScore and yearsInBusiness are required'
+      });
+    }
+
+    // Validate field types and ranges
+    if (typeof creditScore !== 'number' || creditScore < 300 || creditScore > 850) {
+      return res.status(400).json({
+        success: false,
+        error: 'Credit score must be a number between 300 and 850'
+      });
+    }
+
+    if (typeof yearsInBusiness !== 'number' || yearsInBusiness < 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Years in business must be a non-negative number'
+      });
+    }
+
+    const recommendations = await recommendBank({
+      creditScore,
+      yearsInBusiness
+    });
+
+    res.json({
+      success: true,
+      data: recommendations
+    });
+  } catch (error) {
+    console.error('Error recommending banks:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error'

@@ -108,3 +108,28 @@ export const getBankByName = async (name: string) => {
     throw error;
   }
 };
+
+// RECOMMEND - Find banks that match application requirements
+export const recommendBank = async (applicationData: {
+  creditScore: number;
+  yearsInBusiness: number;
+}) => {
+  try {
+    // Find banks where applicant meets or exceeds the minimum requirements
+    const matchingBanks = await Bank.find({
+      'requirements.minimumCreditScore': { $lte: applicationData.creditScore },
+      'requirements.minimumYearsInBusiness': { $lte: applicationData.yearsInBusiness }
+    })
+      .sort({ 'requirements.minimumCreditScore': -1 }) // Sort by highest credit score requirement first
+      .exec();
+
+    return {
+      applicantProfile: applicationData,
+      matchingBanks,
+      totalMatches: matchingBanks.length
+    };
+  } catch (error) {
+    console.error('Error recommending banks:', error);
+    throw error;
+  }
+};
