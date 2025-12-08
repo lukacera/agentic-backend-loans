@@ -22,6 +22,9 @@ import { generatePresignedUrl } from '../services/s3Service.js';
 
 const router = express.Router();
 
+const SAMPLE_CONTRACT_FILE_NAME = 'Sample_Contract.pdf';
+const SAMPLE_CONTRACT_S3_KEY = 'Sample_Contract.pdf';
+
 // Configure multer for file uploads
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -264,13 +267,56 @@ router.post('/name', async (req, res) => {
   }
 });
 
+// GET /api/applications/documents/sample-contract - Generate pre-signed URL for sample contract
+router.get('/documents/sample-contract', async (req, res) => {
+  try {
+    const expiresIn = parseInt(req.query.expiresIn as string, 10) || 3600;
+
+    if (!SAMPLE_CONTRACT_S3_KEY) {
+      return res.status(500).json({
+        success: false,
+        error: 'Sample contract S3 key not configured'
+      });
+    }
+
+    if (isNaN(expiresIn) || expiresIn <= 0 || expiresIn > 86400) {
+      return res.status(400).json({
+        success: false,
+        error: 'expiresIn must be a positive integer up to 86400 seconds'
+      });
+    }
+
+    const presignedUrl = await generatePresignedUrl(SAMPLE_CONTRACT_S3_KEY, expiresIn);
+
+    res.json({
+      success: true,
+      data: {
+        fileName: SAMPLE_CONTRACT_FILE_NAME,
+        url: presignedUrl,
+        expiresIn
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching sample contract from S3:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
 // GET /api/applications/:applicationId - Get specific application
 router.get('/:applicationId', async (req, res) => {
   try {
     const { applicationId } = req.params;
     
-    const application = await getApplication(applicationId);
-    
+    const application = await Application.findById(applicationId)
+      .populate({
+        path: 'banks.bank', // populate the bankId field inside banks array
+        model: 'Bank',        // make sure this matches the Bank model
+      })
+      .exec();    
+
     if (!application) {
       return res.status(404).json({
         success: false,

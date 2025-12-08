@@ -44,7 +44,7 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
 
   // Bank Submissions
   banks: [{
-    bankId: {
+    bank: {
       type: String,
       required: true
     },
@@ -170,7 +170,7 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
 // Add indexes for common queries
 sbaApplicationSchema.index({ status: 1, createdAt: -1 });
 sbaApplicationSchema.index({ 'applicantData.creditScore': 1 });
-sbaApplicationSchema.index({ 'banks.bankId': 1 });
+sbaApplicationSchema.index({ 'banks.bank': 1 });
 sbaApplicationSchema.index({ 'banks.status': 1 });
 
 export const Application = model<SBAApplication>('Application', sbaApplicationSchema);
