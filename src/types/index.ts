@@ -321,6 +321,16 @@ export interface SBAApplication extends Document {
 
   // Bank Submissions
   banks: BankSubmission[];
+  offers: {
+    bank: string; // Bank _id
+    offerDetails: {
+      repaymentTermMonths: number;
+      annualInterestRate: number;
+      monthlyPayment: number;
+      downPaymentRequired: number;
+    },
+    status: 'pending' | 'accepted' | 'declined';
+  }
 
   // S3 Document Storage
   unsignedDocuments: DocumentStorageInfo[];

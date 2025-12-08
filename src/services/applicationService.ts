@@ -21,6 +21,7 @@ import {
   generatePresignedUrl,
   deleteDocument
 } from './s3Service.js';
+import { recommendBank } from './bankService.js';
 
 const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
 const GENERATED_DIR = path.join(process.cwd(), 'generated');
@@ -623,9 +624,15 @@ export const deleteSignedDocument = async (
 // Send email with S3 documents
 const sendApplicationEmailWithS3Docs = async (
   application: SBAApplication,
-  documentBuffers: Array<{ fileName: string; buffer: Buffer }>
+  documentBuffers: Array<{ fileName: string; buffer: Buffer }>,
+  bankEmail?: string,
+  bankName?: string
 ): Promise<void> => {
   try {
+    // Use provided bank email or fall back to application's bankEmail
+    const recipientEmail = bankEmail || application.bankEmail;
+    const recipient = bankName || 'Bank';
+
     // Prepare email attachments from buffers
     const attachments = documentBuffers.map(doc => ({
       filename: doc.fileName,
@@ -637,7 +644,7 @@ const sendApplicationEmailWithS3Docs = async (
     const emailAgent = createEmailAgent();
 
     const emailComposition = {
-      recipients: [application.bankEmail],
+      recipients: [recipientEmail],
       subject: `SBA Loan Application Submission - ${application.applicantData.businessName}`,
       purpose: 'NEW LOAN APPLICATION' as any,
       tone: 'PROFESSIONAL' as any,
@@ -649,14 +656,14 @@ const sendApplicationEmailWithS3Docs = async (
         'Supporting applicant-provided documents attached',
         'Ready for review and processing'
       ],
-      context: `Signed loan application documents and supporting materials for ${application.applicantData.businessName}. All documents have been electronically signed and include applicant-provided attachments for bank review.`
+      context: `Signed loan application documents and supporting materials for ${application.applicantData.businessName}. All documents have been electronically signed and include applicant-provided attachments for ${recipient} review.`
     };
 
     const emailResult = await composeEmail(emailAgent, emailComposition);
 
     if (emailResult.success && emailResult.data) {
       await sendEmail({
-        to: [application.bankEmail],
+        to: [recipientEmail],
         subject: emailResult.data.subject,
         html: emailResult.data.body,
         text: emailResult.data.body.replace(/<[^>]*>/g, ''),
@@ -687,6 +694,20 @@ export const submitApplicationToBank = async (
       throw new Error('No signed documents found');
     }
 
+    // Get recommended banks based on applicant's credit score and years in business
+    const currentYear = new Date().getFullYear();
+    const yearsInBusiness = currentYear - application.applicantData.yearFounded;
+
+    const recommendations = await recommendBank({
+      creditScore: application.applicantData.creditScore,
+      yearsInBusiness
+    });
+
+    console.log(`Found ${recommendations.totalMatches} matching banks for application ${applicationId}`);
+    if (recommendations.matchingBanks.length === 0) {
+      throw new Error('No banks match the applicant requirements');
+    }
+
     // Download documents from S3 (signed + supporting)
     const signedDocumentBuffers = await downloadDocumentsFromS3(
       application.signedDocuments
@@ -701,20 +722,48 @@ export const submitApplicationToBank = async (
       ...userProvidedDocumentBuffers
     ];
 
-    // Send email with all documents
-    await sendApplicationEmailWithS3Docs(application, documentBuffers);
+    // Send emails to all recommended banks
+    const bankSubmissions = [];
+    for (const bank of recommendations.matchingBanks) {
+      try {
+        // Send email to this bank
+        await sendApplicationEmailWithS3Docs(
+          application,
+          documentBuffers,
+          bank.contacts.email,
+          bank.name
+        );
 
-    // Update application
+        // Track successful submission
+        bankSubmissions.push({
+          bankId: bank._id.toString(),
+          status: 'submitted' as any,
+          submittedAt: new Date()
+        });
+
+        console.log(`Application ${applicationId} submitted to ${bank.name}`);
+      } catch (emailError) {
+        console.error(`Failed to submit to ${bank.name}:`, emailError);
+        // Continue with other banks even if one fails
+      }
+    }
+
+    if (bankSubmissions.length === 0) {
+      throw new Error('Failed to submit application to any bank');
+    }
+
+    // Update application with bank submissions
+    application.banks = bankSubmissions;
     application.status = ApplicationStatus.SENT_TO_BANK;
     application.emailSent = true;
     application.emailSentAt = new Date();
     await application.save();
 
-    console.log(`Application ${applicationId} submitted to bank`);
+    console.log(`Application ${applicationId} submitted to ${bankSubmissions.length} banks`);
 
     return {
       status: ApplicationStatus.SENT_TO_BANK,
-      message: 'Application submitted to bank successfully'
+      message: `Application submitted to ${bankSubmissions.length} bank(s) successfully`
     };
 
   } catch (error) {
