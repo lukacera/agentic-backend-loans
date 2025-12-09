@@ -227,10 +227,6 @@ router.post('/name', async (req, res) => {
     const businessName = extractBusinessName(req.body, toolCallArgs);
     const businessPhone = extractBusinessPhone(req.body, toolCallArgs);
 
-    console.log('Request body:', req.body);
-    console.log('Extracted tool call arguments:', toolCallArgs);
-    console.log('Extracted businessName:', businessName);
-    console.log('Extracted businessPhone:', businessPhone);
     if (!businessName && !businessPhone) {
       return res.status(400).json({
         success: false,

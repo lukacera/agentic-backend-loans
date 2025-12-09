@@ -722,7 +722,13 @@ export const getApplicationByBusinessName = async (name: string): Promise<SBAApp
 
     return await Application.findOne({
       'applicantData.businessName': { $regex: `^${sanitizedName}$`, $options: 'i' }
-    }).exec();
+    })
+    .populate({
+      path: 'banks.bank', // populate the bankId field inside banks array
+      model: 'Bank',        // make sure this matches the Bank model
+      select: 'name' // specify the fields to select from the Bank model
+    })
+    .exec(); 
   } catch (error) {
     console.error('Error fetching application by name:', error);
     throw error;
@@ -761,7 +767,13 @@ export const getApplicationByPhone = async (phone: string): Promise<SBAApplicati
       });
     }
 
-    return await Application.findOne({ $or: orConditions }).exec();
+    return await Application.findOne({ $or: orConditions })
+    .populate({
+      path: 'banks.bank', // populate the bankId field inside banks array
+      model: 'Bank',        // make sure this matches the Bank model
+      select: 'name' // specify the fields to select from the Bank model
+    })
+    .exec();  
   } catch (error) {
     console.error('Error fetching application by phone number:', error);
     throw error;
