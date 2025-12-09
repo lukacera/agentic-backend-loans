@@ -327,10 +327,14 @@ router.get('/:applicationId', async (req, res) => {
     
     const application = await Application.findById(applicationId)
       .populate({
-        path: 'banks.bank', // populate the bankId field inside banks array
-        model: 'Bank',        // make sure this matches the Bank model
+      path: 'banks.bank',
+      model: 'Bank',
       })
-      .exec();    
+      .populate({
+      path: 'offers.bank',
+      model: 'Bank',
+      })
+      .exec();
 
     if (!application) {
       return res.status(404).json({
@@ -862,7 +866,7 @@ router.post('/:applicationId/submit-to-bank', async (req, res) => {
     console.error('Error submitting to bank:', error);
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Internal server error'
+    error: error instanceof Error ? error.message : 'Internal server error'
     });
   }
 });
