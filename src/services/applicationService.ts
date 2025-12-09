@@ -777,7 +777,7 @@ export const getApplications = async (
   try {
     const query = status ? { status } : {};
     const skip = (page - 1) * limit;
-    
+
     const [applications, total] = await Promise.all([
       Application.find(query)
         .sort({ createdAt: -1 })
@@ -786,7 +786,7 @@ export const getApplications = async (
         .exec(),
       Application.countDocuments(query).exec()
     ]);
-    
+
     return {
       applications,
       total,
@@ -795,6 +795,51 @@ export const getApplications = async (
     };
   } catch (error) {
     console.error('Error fetching applications:', error);
+    throw error;
+  }
+};
+
+// Create a new offer for an application
+export const createOffer = async (
+  applicationId: string,
+  bankId: string,
+  offerDetails: {
+    repaymentTermMonths: number;
+    annualInterestRate: number;
+    monthlyPayment: number;
+    downPaymentRequired: number;
+  }
+): Promise<SBAApplication> => {
+  try {
+    const application = await Application.findById(applicationId);
+
+    if (!application) {
+      throw new Error('Application not found');
+    }
+
+    // Create new offer object
+    const newOffer = {
+      bank: bankId,
+      offerDetails: {
+        repaymentTermMonths: offerDetails.repaymentTermMonths,
+        annualInterestRate: offerDetails.annualInterestRate,
+        monthlyPayment: offerDetails.monthlyPayment,
+        downPaymentRequired: offerDetails.downPaymentRequired
+      },
+      status: 'pending' as const
+    };
+
+    // Push offer to application.offers array
+    application.offers.push(newOffer);
+    application.markModified('offers');
+
+    await application.save();
+
+    console.log(`Offer created for application ${applicationId} from bank ${bankId}`);
+
+    return application;
+  } catch (error) {
+    console.error('Error creating offer:', error);
     throw error;
   }
 };

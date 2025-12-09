@@ -2,7 +2,6 @@ import express from 'express';
 import multer from 'multer';
 import {
   createApplication,
-  getApplication,
   getApplicationByBusinessName,
   getApplicationByPhone,
   getApplications,
@@ -10,7 +9,8 @@ import {
   markUnsignedDocumentAsSigned,
   deleteSignedDocument,
   submitApplicationToBank,
-  addUserProvidedDocuments
+  addUserProvidedDocuments,
+  createOffer
 } from '../services/applicationService.js';
 import {
   ApplicationSubmissionRequest,
@@ -848,6 +848,90 @@ router.post('/:applicationId/submit-to-bank', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// POST /api/applications/:applicationId/offers - Create new offer
+router.post('/:applicationId/offers', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const { bankId, offerDetails } = req.body;
+
+    // Validate required fields
+    if (!bankId || typeof bankId !== 'string' || bankId.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'bankId is required and must be a non-empty string'
+      });
+    }
+
+    if (!offerDetails || typeof offerDetails !== 'object') {
+      return res.status(400).json({
+        success: false,
+        error: 'offerDetails is required and must be an object'
+      });
+    }
+
+    // Validate offerDetails fields
+    const { repaymentTermMonths, annualInterestRate, monthlyPayment, downPaymentRequired } = offerDetails;
+
+    if (typeof repaymentTermMonths !== 'number' || repaymentTermMonths <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'repaymentTermMonths must be a positive number'
+      });
+    }
+
+    if (typeof annualInterestRate !== 'number' || annualInterestRate <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'annualInterestRate must be a positive number'
+      });
+    }
+
+    if (typeof monthlyPayment !== 'number' || monthlyPayment <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'monthlyPayment must be a positive number'
+      });
+    }
+
+    if (typeof downPaymentRequired !== 'number' || downPaymentRequired < 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'downPaymentRequired must be a non-negative number'
+      });
+    }
+
+    // Create the offer
+    const application = await createOffer(applicationId, bankId.trim(), {
+      repaymentTermMonths,
+      annualInterestRate,
+      monthlyPayment,
+      downPaymentRequired
+    });
+
+    // Get the newly created offer (last one in the array)
+    const createdOffer = application.offers[application.offers.length - 1];
+
+    res.status(201).json({
+      success: true,
+      data: {
+        applicationId,
+        offer: createdOffer
+      }
+    });
+
+  } catch (error) {
+    console.error('Error creating offer:', error);
+
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    const statusCode = message === 'Application not found' ? 404 : 500;
+
+    res.status(statusCode).json({
+      success: false,
+      error: message
     });
   }
 });

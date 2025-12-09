@@ -321,7 +321,7 @@ export interface SBAApplication extends Document {
 
   // Bank Submissions
   banks: BankSubmission[];
-  offers: {
+  offers: [{
     bank: string; // Bank _id
     offerDetails: {
       repaymentTermMonths: number;
@@ -330,7 +330,7 @@ export interface SBAApplication extends Document {
       downPaymentRequired: number;
     },
     status: 'pending' | 'accepted' | 'declined';
-  }
+  }]
 
   // S3 Document Storage
   unsignedDocuments: DocumentStorageInfo[];

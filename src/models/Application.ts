@@ -62,35 +62,36 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
   }],
 
   // Offers from banks
-  offers: {
+  offers: [{
     bank: {
       type: String,
-      required: false
+      required: true
     },
     offerDetails: {
       repaymentTermMonths: {
         type: Number,
-        required: false
+        required: true
       },
       annualInterestRate: {
         type: Number,
-        required: false
+        required: true
       },
       monthlyPayment: {
         type: Number,
-        required: false
+        required: true
       },
       downPaymentRequired: {
         type: Number,
-        required: false
+        required: true
       }
     },
     status: {
       type: String,
       enum: ['pending', 'accepted', 'declined'],
-      required: false
+      default: 'pending',
+      required: true
     }
-  },
+  }],
 
   // S3 Document Storage
   unsignedDocuments: [{
