@@ -330,6 +330,7 @@ export interface SBAApplication extends Document {
       downPaymentRequired: number;
     },
     status: 'pending' | 'accepted' | 'declined';
+    _id?: string
   }]
 
   // S3 Document Storage

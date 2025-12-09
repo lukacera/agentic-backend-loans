@@ -10,7 +10,8 @@ import {
   deleteSignedDocument,
   submitApplicationToBank,
   addUserProvidedDocuments,
-  createOffer
+  createOffer,
+  updateOfferStatus
 } from '../services/applicationService.js';
 import {
   ApplicationSubmissionRequest,
@@ -947,6 +948,54 @@ router.post('/:applicationId/offers', async (req, res) => {
 
     const message = error instanceof Error ? error.message : 'Internal server error';
     const statusCode = message === 'Application not found' ? 404 : 500;
+
+    res.status(statusCode).json({
+      success: false,
+      error: message
+    });
+  }
+});
+
+// PATCH /api/applications/:applicationId/offers/:offerId - Update offer status (accept/reject)
+router.patch('/:applicationId/offers/:offerId', async (req, res) => {
+  try {
+    const { applicationId, offerId } = req.params;
+    const { status } = req.body;
+
+    // Validate status
+    if (!status || !['accepted', 'declined'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Status is required and must be either "accepted" or "declined"'
+      });
+    }
+
+    // Update offer status
+    const application = await updateOfferStatus(applicationId, offerId, status);
+
+    // Find the updated offer
+    const updatedOffer = application.offers.find(
+      (o) => o._id && o._id.toString() === offerId
+    );
+
+    res.json({
+      success: true,
+      data: {
+        applicationId,
+        offerId,
+        offer: updatedOffer,
+        message: `Offer ${status} successfully`
+      }
+    });
+
+  } catch (error) {
+    console.error('Error updating offer status:', error);
+
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    const statusCode =
+      message === 'Application not found' || message === 'Offer not found'
+        ? 404
+        : 500;
 
     res.status(statusCode).json({
       success: false,

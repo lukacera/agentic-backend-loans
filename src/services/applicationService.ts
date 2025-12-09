@@ -855,3 +855,40 @@ export const createOffer = async (
     throw error;
   }
 };
+
+// Update offer status (accept/decline)
+export const updateOfferStatus = async (
+  applicationId: string,
+  offerId: string,
+  status: 'accepted' | 'declined'
+): Promise<SBAApplication> => {
+  try {
+    const application = await Application.findById(applicationId);
+
+    if (!application) {
+      throw new Error('Application not found');
+    }
+
+    // Find the offer by its _id
+    const offer = application.offers.find(
+      (o) => o._id && o._id.toString() === offerId
+    );
+
+    if (!offer) {
+      throw new Error('Offer not found');
+    }
+
+    // Update the offer status
+    offer.status = status;
+    application.markModified('offers');
+
+    await application.save();
+
+    console.log(`Offer ${offerId} status updated to ${status} for application ${applicationId}`);
+
+    return application;
+  } catch (error) {
+    console.error('Error updating offer status:', error);
+    throw error;
+  }
+};
