@@ -19,6 +19,7 @@ import {
 } from '../types/index.js';
 import { Application } from '../models/Application.js';
 import { generatePresignedUrl } from '../services/s3Service.js';
+import { formatApplicationStatus } from '../utils/formatters.js';
 
 const router = express.Router();
 
@@ -88,6 +89,7 @@ const extractBusinessName = (
     payload?.message?.data?.businessName,
     payload?.message?.payload?.businessName,
     payload?.message?.input?.businessName,
+    payload?.message?.toolCallList?.[0]?.arguments?.businessName,
     payload?.data?.businessName,
     payload?.payload?.businessName,
     payload?.fields?.businessName,
@@ -117,6 +119,8 @@ const extractBusinessPhone = (
     payload?.message?.businessPhone,
     payload?.message?.data?.businessPhone,
     payload?.message?.payload?.businessPhone,
+    payload?.message?.toolCallList?.[0]?.arguments?.businessPhone,
+    payload?.message?.toolCallList?.[0]?.arguments?.businessPhoneNumber,
     payload?.data?.businessPhone,
     payload?.payload?.businessPhone,
     payload?.fields?.businessPhone,
@@ -253,14 +257,29 @@ router.post('/name', async (req, res) => {
       });
     }
 
-    console.log('Found application:', application);
-    res.json({
-      application
+    const serializedApplication =
+      typeof (application as any)?.toObject === 'function'
+        ? (application as any).toObject()
+        : application;
+    const applicationString = formatApplicationStatus(serializedApplication);
+
+    console.log('Found application:', applicationString);
+
+    // Extract toolCallId from request body
+    const toolCallId = req.body?.message?.toolCallList?.[0]?.id || 'unknown';
+
+    return res.status(200).json({
+      results: [
+        {
+          toolCallId: toolCallId,
+          result: applicationString
+        }
+      ]
     });
 
   } catch (error) {
     console.error('Error fetching application by name:', error);
-    res.status(500).json({
+    res.status(200).json({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error'
     });
