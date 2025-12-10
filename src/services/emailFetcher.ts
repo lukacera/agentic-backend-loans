@@ -32,7 +32,6 @@ function createIMAPConnection(): Imap {
 
   // Setup event handlers
   imap.once('ready', () => {
-    console.log('IMAP connection ready');
     isConnected = true;
   });
 
@@ -42,7 +41,6 @@ function createIMAPConnection(): Imap {
   });
 
   imap.once('end', () => {
-    console.log('IMAP connection ended');
     isConnected = false;
   });
 
@@ -51,7 +49,6 @@ function createIMAPConnection(): Imap {
 
 async function connectToIMAP(): Promise<Imap> {
   if (isConnected && imapConnection) {
-    console.log('Reusing existing IMAP connection');
     return imapConnection;
   }
 

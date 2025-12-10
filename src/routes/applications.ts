@@ -22,7 +22,8 @@ import {
 import { Application } from '../models/Application.js';
 import { generatePresignedUrl } from '../services/s3Service.js';
 import { formatApplicationStatus } from '../utils/formatters.js';
-
+import websocketService from '../services/websocket.js';
+;
 const router = express.Router();
 
 const SAMPLE_CONTRACT_FILE_NAME = 'Sample_Contract.pdf';
@@ -260,8 +261,6 @@ router.post('/name', async (req, res) => {
         ? (application as any).toObject()
         : application;
     const applicationString = formatApplicationStatus(serializedApplication);
-
-    console.log('Found application:', applicationString);
 
     // Extract toolCallId from request body
     const toolCallId = req.body?.message?.toolCallList?.[0]?.id || 'unknown';
@@ -729,8 +728,6 @@ router.post('/:applicationId/documents/signed', upload.array('documents', 10), a
       buffer: file.buffer
     }));
 
-    console.log(`Uploading ${signedDocumentBuffers.length} signed documents for application ${applicationId}`);
-    // Process signed documents
     const result = await handleSignedDocuments(
       applicationId,
       signedDocumentBuffers,
@@ -1012,16 +1009,26 @@ router.post('/calculate-chances', async (req, res) => {
     const toolCallArgs = extractToolCallArguments(req.body);
 
     // Validate required fields
-    if (!data.purchasePrice || !data.availableCash || !data.businessSDE) {
-      console.log('Missing required fields for SBA eligibility calculation:', data);
+    if (!toolCallArgs.purchasePrice || !toolCallArgs.availableCash || !toolCallArgs.businessSDE) {
       return res.status(400).json({
         error: 'Missing required fields: purchasePrice, availableCash, businessSDE'
       });
     }
 
-    const result = calculateSBAEligibility(data);
-    console.log('SBA Eligibility Result:', result);
-    res.json(result);
+    const toolCallId = data.message?.toolCallList?.[0]?.id || 'unknown';
+    const result = calculateSBAEligibility(toolCallArgs as any);
+
+    websocketService.broadcast('form-reveal', {
+      timestamp: new Date().toISOString(),
+      source: 'calculate-chances'
+    }, ["global"]);
+
+    res.status(200).json({
+      results: [{
+        toolCallId: toolCallId,
+        result: result
+      }]
+    });
 
   } catch (error) {
     console.error('Error checking SBA eligibility:', error);

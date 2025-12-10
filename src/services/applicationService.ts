@@ -124,7 +124,6 @@ const processApplicationAsync = async (application: SBAApplication): Promise<voi
     // Clean up local files after successful upload
     await cleanupLocalFiles(generatedDocuments);
 
-    console.log(`Application ${application._id} ready for signature`);
 
     // Email will be sent after documents are signed via submitApplicationToBank()
 
@@ -226,7 +225,6 @@ const uploadDocumentsToS3 = async (
       const fileName = path.basename(filePath);
       const fileBuffer = await fs.readFile(filePath);
 
-      console.log(`Uploading ${fileName} to S3...`);
 
       const s3Result = await uploadDocumentWithRetry(
         applicationId,
@@ -241,7 +239,6 @@ const uploadDocumentsToS3 = async (
         uploadedAt: new Date()
       });
 
-      console.log(`Successfully uploaded ${fileName} to S3`);
     } catch (error) {
       console.error(`Failed to upload ${filePath} to S3:`, error);
       throw error;
@@ -257,7 +254,6 @@ const cleanupLocalFiles = async (filePaths: string[]): Promise<void> => {
     try {
       if (await fs.pathExists(filePath)) {
         await fs.remove(filePath);
-        console.log(`Cleaned up local file: ${filePath}`);
       }
     } catch (error) {
       console.error(`Failed to clean up file ${filePath}:`, error);
@@ -291,7 +287,6 @@ export const handleSignedDocuments = async (
     const uploadedSignedDocs: DocumentStorageInfo[] = [];
 
     for (const doc of signedDocumentBuffers) {
-      console.log(`Uploading signed document: ${doc.fileName}`);
 
       const s3Result = await uploadDocumentWithRetry(
         applicationId,
@@ -323,7 +318,6 @@ export const handleSignedDocuments = async (
 
     await application.save();
 
-    console.log(`Signed documents processed for application ${applicationId}`);
 
     return {
       status: ApplicationStatus.SIGNED,
@@ -414,7 +408,6 @@ const downloadDocumentsFromS3 = async (
 
   for (const doc of documents) {
     try {
-      console.log(`Downloading document from S3: ${doc.fileName}`);
       const buffer = await downloadDocument(doc.s3Key);
       documentBuffers.push({
         fileName: doc.fileName,
@@ -661,7 +654,6 @@ export const submitApplicationToBank = async (
       yearsInBusiness
     });
 
-    console.log(`Found ${recommendations.totalMatches} matching banks for application ${applicationId}`);
     if (recommendations.matchingBanks.length === 0) {
       throw new Error('No banks match the applicant requirements');
     }
@@ -699,7 +691,6 @@ export const submitApplicationToBank = async (
           submittedAt: new Date()
         });
 
-        console.log(`Application ${applicationId} submitted to ${bank.name}`);
       } catch (emailError) {
         console.error(`Failed to submit to ${bank.name}:`, emailError);
         // Continue with other banks even if one fails
@@ -717,7 +708,6 @@ export const submitApplicationToBank = async (
     application.emailSentAt = new Date();
     await application.save();
 
-    console.log(`Application ${applicationId} submitted to ${bankSubmissions.length} banks`);
 
     return {
       status: ApplicationStatus.SENT_TO_BANK,
@@ -777,7 +767,6 @@ export const getApplicationByPhone = async (phone: string): Promise<SBAApplicati
     const digitsOnly = sanitizedPhone.replace(/\D+/g, '');
 
     const orConditions: Record<string, unknown>[] = [];
-    console.log('Searching for phone number with sanitized input:', sanitizedPhone, 'and digits only:', digitsOnly);
     orConditions.push({
       'applicantData.businessPhoneNumber': {
         $regex: `^${escapeRegex(sanitizedPhone)}$`,
@@ -875,7 +864,6 @@ export const createOffer = async (
 
     await application.save();
 
-    console.log(`Offer created for application ${applicationId} from bank ${bankId}`);
 
     return application;
   } catch (error) {
@@ -912,7 +900,6 @@ export const updateOfferStatus = async (
 
     await application.save();
 
-    console.log(`Offer ${offerId} status updated to ${status} for application ${applicationId}`);
 
     return application;
   } catch (error) {
@@ -934,8 +921,8 @@ function calculateDSCR(loanAmount: number, rate: number, years: number, sde: num
   return Number((sde / annualDebtService).toFixed(2));
 }
 
-// Calculate SBA eligibility and approval chances
-export function calculateSBAEligibility(data: SBAEligibilityRequest): SBAEligibilityResponse {
+// Calculate SBA eligibility and approval chances (returns single-line string)
+export function calculateSBAEligibility(data: SBAEligibilityRequest): string {
   const purchasePrice = parseInt(data.purchasePrice);
   const availableCash = parseInt(data.availableCash);
   const businessSDE = parseInt(data.businessSDE || '0');
@@ -966,20 +953,7 @@ export function calculateSBAEligibility(data: SBAEligibilityRequest): SBAEligibi
   };
 
   if (!isCitizen) {
-    return {
-      eligible: false,
-      approvalChance: 'Ineligible',
-      approvalPercentage: 0,
-      reasons: ['Non-US citizens are ineligible for SBA loans'],
-      recommendations: ['Consider seller financing or alternative lending options'],
-      eligibilityChecks: {
-        citizenship: citizenshipCheck,
-        creditScore: { passed: false, message: 'N/A - citizenship required first' },
-        businessAge: { passed: false, message: 'N/A - citizenship required first' },
-        downPayment: { passed: false, message: 'N/A - citizenship required first' },
-        cashFlow: { passed: false, message: 'N/A - citizenship required first' }
-      }
-    };
+    return 'Ineligible for SBA loan, Non-US citizens are ineligible for SBA loans, Recommendation: Consider seller financing or alternative lending options';
   }
 
   // 2. Credit Score Check
@@ -1113,18 +1087,45 @@ export function calculateSBAEligibility(data: SBAEligibilityRequest): SBAEligibi
     }
   }
 
-  return {
-    eligible,
-    approvalChance,
-    approvalPercentage: score,
-    reasons: reasons.length ? reasons : ['Basic SBA requirements met'],
-    recommendations: recommendations.length ? recommendations : ['Proceed with SBA loan application'],
-    eligibilityChecks: {
-      citizenship: citizenshipCheck,
-      creditScore: creditScoreCheck,
-      businessAge: businessAgeCheck,
-      downPayment: downPaymentCheck,
-      cashFlow: cashFlowCheck
-    }
-  };
+  // Build single-line string response
+  const parts: string[] = [];
+
+  // Add approval chance and percentage
+  parts.push(`Approval Chance: ${approvalChance}`);
+  parts.push(`Score: ${score} out of 100`);
+
+  // Add eligibility status
+  parts.push(eligible ? 'Eligible for SBA loan' : 'Not eligible for SBA loan');
+
+  // Add citizenship check
+  parts.push(citizenshipCheck.message);
+
+  // Add credit score check
+  parts.push(creditScoreCheck.message);
+
+  // Add business age check
+  parts.push(businessAgeCheck.message);
+
+  // Add down payment check
+  if (downPaymentCheck.message) {
+    parts.push(downPaymentCheck.message);
+  }
+
+  // Add cash flow check
+  if (cashFlowCheck.message) {
+    parts.push(cashFlowCheck.message);
+  }
+
+  // Add reasons
+  if (reasons.length > 0) {
+    parts.push(`Reasons: ${reasons.join(', ')}`);
+  }
+
+  // Add recommendations
+  if (recommendations.length > 0) {
+    parts.push(`Recommendations: ${recommendations.join(', ')}`);
+  }
+
+  // Join all parts with commas
+  return parts.join(', ');
 }
