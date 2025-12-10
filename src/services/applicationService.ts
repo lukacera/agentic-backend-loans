@@ -21,8 +21,42 @@ import {
 } from './s3Service.js';
 import { recommendBank } from './bankService.js';
 
+// SBA Eligibility Calculator Interfaces
+interface SBAEligibilityRequest {
+  purchasePrice: string;
+  availableCash: string;
+  businessSDE: string;
+  buyerCreditScore: string;
+  citizenshipStatus: string;
+  businessYearsRunning: string | number;
+  industryExperience?: string;
+}
+
+interface SBAEligibilityResponse {
+  eligible: boolean;
+  approvalChance: 'High' | 'Medium' | 'Low' | 'Very Low' | 'Ineligible';
+  approvalPercentage: number;
+  reasons: string[];
+  recommendations: string[];
+  eligibilityChecks: {
+    citizenship: { passed: boolean; message: string };
+    creditScore: { passed: boolean; message: string };
+    businessAge: { passed: boolean; message: string };
+    downPayment: { passed: boolean; message: string };
+    cashFlow: { passed: boolean; message: string };
+  };
+}
+
 const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
 const GENERATED_DIR = path.join(process.cwd(), 'generated');
+
+// Credit score mapping for eligibility calculator
+const creditScoreMap: Record<string, { min: number; max: number }> = {
+  'Excellent (720+)': { min: 720, max: 850 },
+  'Good (680-719)': { min: 680, max: 719 },
+  'Fair (650-679)': { min: 650, max: 679 },
+  'Poor (Below 650)': { min: 300, max: 649 }
+};
 
 // Ensure directories exist
 const initializeDirectories = async (): Promise<void> => {
@@ -892,3 +926,214 @@ export const updateOfferStatus = async (
     throw error;
   }
 };
+
+// Helper function to calculate DSCR (Debt Service Coverage Ratio)
+function calculateDSCR(loanAmount: number, rate: number, years: number, sde: number): number {
+  if (sde <= 0) return 0;
+
+  const numPayments = years * 12;
+  const monthlyRate = rate / 12;
+  const monthlyPayment = loanAmount * (monthlyRate * Math.pow(1 + monthlyRate, numPayments)) /
+                        (Math.pow(1 + monthlyRate, numPayments) - 1);
+  const annualDebtService = monthlyPayment * 12;
+
+  return Number((sde / annualDebtService).toFixed(2));
+}
+
+// Calculate SBA eligibility and approval chances
+export function calculateSBAEligibility(data: SBAEligibilityRequest): SBAEligibilityResponse {
+  const purchasePrice = parseInt(data.purchasePrice);
+  const availableCash = parseInt(data.availableCash);
+  const businessSDE = parseInt(data.businessSDE || '0');
+  const businessYearsRunning = typeof data.businessYearsRunning === 'number'
+    ? data.businessYearsRunning
+    : parseInt(data.businessYearsRunning as any) || 0;
+
+  const creditScore = creditScoreMap[data.buyerCreditScore || ""];
+  const status = data.citizenshipStatus?.toLowerCase() || "";
+  const isCitizen = ((status.includes('citizen') || status.includes('lpr')) &&
+                    !status.includes('non') && !status.includes('no'));
+
+  const downPaymentPercent = (availableCash / purchasePrice) * 100;
+
+  // Calculate DSCR for a typical 90% SBA loan
+  const typicalLoanAmount = purchasePrice * 0.9;
+  const dscr = calculateDSCR(typicalLoanAmount, 0.095, 10, businessSDE);
+
+  const reasons: string[] = [];
+  const recommendations: string[] = [];
+  let score = 100; // Start at 100, deduct points for issues
+
+  // 1. Citizenship Check (HARD STOP)
+  const citizenshipCheck = {
+    passed: isCitizen,
+    message: isCitizen
+      ? 'US Citizen or Lawful Permanent Resident ✓'
+      : 'Must be US Citizen or Lawful Permanent Resident'
+  };
+
+  if (!isCitizen) {
+    return {
+      eligible: false,
+      approvalChance: 'Ineligible',
+      approvalPercentage: 0,
+      reasons: ['Non-US citizens are ineligible for SBA loans'],
+      recommendations: ['Consider seller financing or alternative lending options'],
+      eligibilityChecks: {
+        citizenship: citizenshipCheck,
+        creditScore: { passed: false, message: 'N/A - citizenship required first' },
+        businessAge: { passed: false, message: 'N/A - citizenship required first' },
+        downPayment: { passed: false, message: 'N/A - citizenship required first' },
+        cashFlow: { passed: false, message: 'N/A - citizenship required first' }
+      }
+    };
+  }
+
+  // 2. Credit Score Check
+  let creditScoreCheck = { passed: true, message: 'Credit score not provided' };
+
+  if (creditScore && Object.keys(creditScore).length > 0) {
+    const minScore = creditScore.min || 0;
+
+    if (minScore >= 720) {
+      creditScoreCheck = { passed: true, message: 'Excellent credit score (720+) ✓' };
+      reasons.push('Strong credit profile');
+    } else if (minScore >= 680) {
+      creditScoreCheck = { passed: true, message: 'Good credit score (680-719) ✓' };
+      score -= 5;
+    } else if (minScore >= 650) {
+      creditScoreCheck = { passed: true, message: 'Fair credit score (650-679)' };
+      score -= 15;
+      reasons.push('Credit score is on the lower end for SBA approval');
+      recommendations.push('Consider improving credit score before applying');
+    } else {
+      creditScoreCheck = { passed: false, message: 'Credit score below 650 - High risk' };
+      score -= 30;
+      reasons.push('Credit score below SBA typical minimum (650)');
+      recommendations.push('Work on improving credit score to 680+ for better approval odds');
+    }
+  }
+
+  // 3. Business Age Check
+  let businessAgeCheck = { passed: true, message: 'Business age not provided' };
+
+  if (businessYearsRunning !== null && businessYearsRunning !== undefined) {
+    if (businessYearsRunning >= 5) {
+      businessAgeCheck = { passed: true, message: `Established business (${businessYearsRunning} years) ✓` };
+      reasons.push('Well-established business history');
+    } else if (businessYearsRunning >= 2) {
+      businessAgeCheck = { passed: true, message: `Business meets minimum (${businessYearsRunning} years) ✓` };
+      score -= 5;
+    } else {
+      businessAgeCheck = { passed: false, message: `Business too young (${businessYearsRunning} years < 2 years required)` };
+      score -= 40;
+      reasons.push('Business must operate for minimum 2 years for SBA eligibility');
+      recommendations.push('Wait until business reaches 2-year operating history');
+    }
+  }
+
+  // 4. Down Payment Check
+  let downPaymentCheck = { passed: true, message: '' };
+
+  if (downPaymentPercent >= 20) {
+    downPaymentCheck = { passed: true, message: `Strong down payment (${downPaymentPercent.toFixed(1)}%) ✓` };
+    reasons.push('Substantial equity investment');
+  } else if (downPaymentPercent >= 10) {
+    downPaymentCheck = { passed: true, message: `Adequate down payment (${downPaymentPercent.toFixed(1)}%) ✓` };
+    score -= 10;
+  } else if (downPaymentPercent >= 5) {
+    downPaymentCheck = { passed: true, message: `Minimum down payment (${downPaymentPercent.toFixed(1)}%)` };
+    score -= 20;
+    reasons.push('Low down payment may require seller financing to meet 10% equity requirement');
+    recommendations.push('Try to increase down payment to 10%+ for better approval odds');
+  } else {
+    downPaymentCheck = { passed: false, message: `Insufficient down payment (${downPaymentPercent.toFixed(1)}% < 5% minimum)` };
+    score -= 35;
+    reasons.push('Down payment below 5% minimum - will need seller financing on standby');
+    recommendations.push('Increase cash reserves or negotiate seller financing for equity gap');
+  }
+
+  // 5. Cash Flow / DSCR Check
+  let cashFlowCheck = { passed: true, message: '' };
+
+  if (businessSDE <= 0) {
+    cashFlowCheck = { passed: false, message: 'Business cash flow (SDE) not provided' };
+    score -= 20;
+    reasons.push('Cash flow information required for approval');
+    recommendations.push('Obtain detailed financial statements showing business SDE');
+  } else if (dscr >= 1.35) {
+    cashFlowCheck = { passed: true, message: `Excellent cash flow coverage (DSCR: ${dscr.toFixed(2)}) ✓` };
+    reasons.push('Strong debt service coverage ratio');
+  } else if (dscr >= 1.25) {
+    cashFlowCheck = { passed: true, message: `Good cash flow coverage (DSCR: ${dscr.toFixed(2)}) ✓` };
+    score -= 5;
+  } else if (dscr >= 1.15) {
+    cashFlowCheck = { passed: true, message: `Adequate cash flow coverage (DSCR: ${dscr.toFixed(2)})` };
+    score -= 15;
+    reasons.push('Cash flow is at minimum threshold for SBA approval');
+    recommendations.push('Consider increasing down payment to reduce loan amount and improve DSCR');
+  } else {
+    cashFlowCheck = { passed: false, message: `Insufficient cash flow (DSCR: ${dscr.toFixed(2)} < 1.15 required)` };
+    score -= 40;
+    reasons.push('Business cash flow cannot support SBA loan payments');
+    recommendations.push('Increase down payment significantly to reduce monthly debt service');
+    recommendations.push('Negotiate seller financing to reduce SBA loan amount');
+  }
+
+  // 6. Industry Experience (bonus factor)
+  if (data.industryExperience) {
+    const experience = data.industryExperience.toLowerCase();
+    if (experience.includes('owner') || experience.includes('manager') ||
+        experience.includes('director') || experience.match(/\d+\s*years?/)) {
+      reasons.push('Relevant industry experience strengthens application');
+      score += 5; // Bonus points
+    } else if (experience.includes('no') || experience.includes('none') ||
+               experience.includes('limited')) {
+      score -= 10;
+      recommendations.push('Develop detailed business plan to offset limited industry experience');
+    }
+  }
+
+  // Calculate final approval chance
+  score = Math.max(0, Math.min(100, score)); // Clamp between 0-100
+
+  let approvalChance: 'High' | 'Medium' | 'Low' | 'Very Low' | 'Ineligible';
+  let eligible = true;
+
+  if (score >= 80) {
+    approvalChance = 'High';
+  } else if (score >= 60) {
+    approvalChance = 'Medium';
+  } else if (score >= 40) {
+    approvalChance = 'Low';
+  } else if (score >= 20) {
+    approvalChance = 'Very Low';
+  } else {
+    approvalChance = 'Ineligible';
+    eligible = false;
+  }
+
+  // Add general recommendations if not already high approval
+  if (score < 80) {
+    if (!recommendations.length) {
+      recommendations.push('Prepare comprehensive business plan with 3-year projections');
+      recommendations.push('Gather all required SBA documentation in advance');
+      recommendations.push('Consider working with an SBA-experienced business broker or consultant');
+    }
+  }
+
+  return {
+    eligible,
+    approvalChance,
+    approvalPercentage: score,
+    reasons: reasons.length ? reasons : ['Basic SBA requirements met'],
+    recommendations: recommendations.length ? recommendations : ['Proceed with SBA loan application'],
+    eligibilityChecks: {
+      citizenship: citizenshipCheck,
+      creditScore: creditScoreCheck,
+      businessAge: businessAgeCheck,
+      downPayment: downPaymentCheck,
+      cashFlow: cashFlowCheck
+    }
+  };
+}

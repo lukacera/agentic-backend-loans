@@ -11,7 +11,8 @@ import {
   submitApplicationToBank,
   addUserProvidedDocuments,
   createOffer,
-  updateOfferStatus
+  updateOfferStatus,
+  calculateSBAEligibility
 } from '../services/applicationService.js';
 import {
   ApplicationSubmissionRequest,
@@ -1001,6 +1002,28 @@ router.patch('/:applicationId/offers/:offerId', async (req, res) => {
       success: false,
       error: message
     });
+  }
+});
+
+// Calculate SBA eligibility and approval chances
+router.post('/calculate-chances', async (req, res) => {
+  try {
+    const data = req.body;
+
+    // Validate required fields
+    if (!data.purchasePrice || !data.availableCash || !data.businessSDE) {
+      return res.status(400).json({
+        error: 'Missing required fields: purchasePrice, availableCash, businessSDE'
+      });
+    }
+
+    const result = calculateSBAEligibility(data);
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('Error checking SBA eligibility:', error);
+    res.status(500).json({ error: 'Failed to check SBA eligibility' });
   }
 });
 
