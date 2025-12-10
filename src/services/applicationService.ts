@@ -27,7 +27,7 @@ interface SBAEligibilityRequest {
   availableCash: string;
   businessSDE: string;
   buyerCreditScore: string;
-  citizenshipStatus: string;
+  isUSCitizen: boolean;
   businessYearsRunning: string | number;
   industryExperience?: string;
 }
@@ -50,13 +50,7 @@ interface SBAEligibilityResponse {
 const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
 const GENERATED_DIR = path.join(process.cwd(), 'generated');
 
-// Credit score mapping for eligibility calculator
-const creditScoreMap: Record<string, { min: number; max: number }> = {
-  'Excellent (720+)': { min: 720, max: 850 },
-  'Good (680-719)': { min: 680, max: 719 },
-  'Fair (650-679)': { min: 650, max: 679 },
-  'Poor (Below 650)': { min: 300, max: 649 }
-};
+// Credit score mapping removed - now using plain number strings
 
 // Ensure directories exist
 const initializeDirectories = async (): Promise<void> => {
@@ -949,10 +943,9 @@ export function calculateSBAEligibility(data: SBAEligibilityRequest): SBAEligibi
     ? data.businessYearsRunning
     : parseInt(data.businessYearsRunning as any) || 0;
 
-  const creditScore = creditScoreMap[data.buyerCreditScore || ""];
-  const status = data.citizenshipStatus?.toLowerCase() || "";
-  const isCitizen = ((status.includes('citizen') || status.includes('lpr')) &&
-                    !status.includes('non') && !status.includes('no'));
+  // Parse credit score as a plain number string
+  const creditScoreValue = parseInt(data.buyerCreditScore || '0');
+  const isCitizen = data.isUSCitizen;
 
   const downPaymentPercent = (availableCash / purchasePrice) * 100;
 
@@ -992,16 +985,14 @@ export function calculateSBAEligibility(data: SBAEligibilityRequest): SBAEligibi
   // 2. Credit Score Check
   let creditScoreCheck = { passed: true, message: 'Credit score not provided' };
 
-  if (creditScore && Object.keys(creditScore).length > 0) {
-    const minScore = creditScore.min || 0;
-
-    if (minScore >= 720) {
+  if (creditScoreValue > 0) {
+    if (creditScoreValue >= 720) {
       creditScoreCheck = { passed: true, message: 'Excellent credit score (720+) ✓' };
       reasons.push('Strong credit profile');
-    } else if (minScore >= 680) {
+    } else if (creditScoreValue >= 680) {
       creditScoreCheck = { passed: true, message: 'Good credit score (680-719) ✓' };
       score -= 5;
-    } else if (minScore >= 650) {
+    } else if (creditScoreValue >= 650) {
       creditScoreCheck = { passed: true, message: 'Fair credit score (650-679)' };
       score -= 15;
       reasons.push('Credit score is on the lower end for SBA approval');
