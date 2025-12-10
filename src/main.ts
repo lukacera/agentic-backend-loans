@@ -640,6 +640,7 @@ app.post('/api/create-vapi-assistant', async (req, res) => {
     });
   }
 });
+
 app.post('/vapi-ai', (req, res) => {
   try {
     const { message } = req.body;
@@ -847,6 +848,126 @@ app.post('/vapi-ai', (req, res) => {
                 result: JSON.stringify({
                   success: true,
                   message: 'Year founded captured successfully.'
+                })
+              };
+            }
+
+            case 'captureUSCitizen': {
+              const { usCitizen } = functionArgs as { usCitizen?: boolean | string };
+              saveOrUpdateUserData(message.call?.id, { usCitizen });
+
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { usCitizen },
+                source: 'toolfn-call'
+              }, rooms);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: 'US citizenship status captured successfully.'
+                })
+              };
+            }
+
+            case 'captureLoanPurpose': {
+              const { loanPurpose } = functionArgs as { loanPurpose?: string | string[] };
+              saveOrUpdateUserData(message.call?.id, { loanPurpose });
+
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { loanPurpose },
+                source: 'toolfn-call'
+              }, rooms);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: 'Loan purpose captured successfully.'
+                })
+              };
+            }
+
+            case 'captureExistingDebtPayment': {
+              const { existingDebtPayment } = functionArgs as { existingDebtPayment?: number };
+              saveOrUpdateUserData(message.call?.id, { existingDebtPayment });
+
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { existingDebtPayment },
+                source: 'toolfn-call'
+              }, rooms);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: 'Existing debt payment captured successfully.'
+                })
+              };
+            }
+
+            case 'captureMonthlyExpenses': {
+              const { monthlyExpenses } = functionArgs as { monthlyExpenses?: number };
+              saveOrUpdateUserData(message.call?.id, { monthlyExpenses });
+
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { monthlyExpenses },
+                source: 'toolfn-call'
+              }, rooms);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: 'Monthly expenses captured successfully.'
+                })
+              };
+            }
+
+            case 'captureMonthlyRevenue': {
+              const { monthlyRevenue } = functionArgs as { monthlyRevenue?: number };
+              saveOrUpdateUserData(message.call?.id, { monthlyRevenue });
+
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { monthlyRevenue },
+                source: 'toolfn-call'
+              }, rooms);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: 'Monthly revenue captured successfully.'
+                })
+              };
+            }
+
+            case 'captureUserTypeNewApplication': {
+              const { type } = functionArgs as { type?: string };
+              saveOrUpdateUserData(message.call?.id, { type });
+
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { type }, // This type can be either buyer or some other type, which signalizes that it's a non buyer
+                source: 'toolfn-call'
+              }, rooms);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: 'User type captured successfully.'
                 })
               };
             }
