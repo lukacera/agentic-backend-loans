@@ -1009,16 +1009,18 @@ router.patch('/:applicationId/offers/:offerId', async (req, res) => {
 router.post('/calculate-chances', async (req, res) => {
   try {
     const data = req.body;
+    const toolCallArgs = extractToolCallArguments(req.body);
 
     // Validate required fields
     if (!data.purchasePrice || !data.availableCash || !data.businessSDE) {
+      console.log('Missing required fields for SBA eligibility calculation:', data);
       return res.status(400).json({
         error: 'Missing required fields: purchasePrice, availableCash, businessSDE'
       });
     }
 
     const result = calculateSBAEligibility(data);
-
+    console.log('SBA Eligibility Result:', result);
     res.json(result);
 
   } catch (error) {
