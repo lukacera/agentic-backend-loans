@@ -12,7 +12,8 @@ import {
   addUserProvidedDocuments,
   createOffer,
   updateOfferStatus,
-  calculateSBAEligibility
+  calculateSBAEligibilityForBuyer,
+  calculateSBAEligibilityForOwner
 } from '../services/applicationService.js';
 import {
   ApplicationSubmissionRequest,
@@ -47,6 +48,7 @@ const extractToolCallArguments = (payload: any): Record<string, unknown> => {
 
   const toolCalls = payload?.message?.toolCalls;
   if (!Array.isArray(toolCalls)) {
+    console.log('No tool calls found in payload');
     return aggregatedArgs;
   }
 
@@ -73,7 +75,7 @@ const extractToolCallArguments = (payload: any): Record<string, unknown> => {
       Object.assign(aggregatedArgs, parsedArgs);
     }
   }
-
+  console.log('Extracted tool call arguments:', aggregatedArgs);
   return aggregatedArgs;
 };
 
@@ -1008,15 +1010,32 @@ router.post('/calculate-chances', async (req, res) => {
     const data = req.body;
     const toolCallArgs = extractToolCallArguments(req.body);
 
-    // Validate required fields
-    if (!toolCallArgs.purchasePrice || !toolCallArgs.availableCash || !toolCallArgs.businessSDE) {
-      return res.status(400).json({
-        error: 'Missing required fields: purchasePrice, availableCash, businessSDE'
-      });
+    // Check if type field exists to determine buyer vs owner flow
+    const applicationType = toolCallArgs.type as string || 'buyer';
+
+    let result: string;
+
+    if (applicationType.toLowerCase() === 'buyer') {
+      // Buyer flow - validate buyer fields
+      if (!toolCallArgs.purchasePrice || !toolCallArgs.availableCash || !toolCallArgs.businessSDE) {
+        return res.status(400).json({
+          error: 'Missing required fields for buyer: purchasePrice, availableCash, businessSDE'
+        });
+      }
+
+      result = calculateSBAEligibilityForBuyer(toolCallArgs as any);
+    } else {
+      // Owner flow - validate owner fields
+      if (!toolCallArgs.monthlyRevenue || !toolCallArgs.monthlyExpenses || !toolCallArgs.requestedLoanAmount) {
+        return res.status(400).json({
+          error: 'Missing required fields for owner: monthlyRevenue, monthlyExpenses, requestedLoanAmount'
+        });
+      }
+
+      result = calculateSBAEligibilityForOwner(toolCallArgs as any);
     }
 
     const toolCallId = data.message?.toolCallList?.[0]?.id || 'unknown';
-    const result = calculateSBAEligibility(toolCallArgs as any);
 
     websocketService.broadcast('form-reveal', {
       timestamp: new Date().toISOString(),
