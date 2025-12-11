@@ -9,6 +9,7 @@ import {
   SBAApplication,
   UserProvidedDocumentType,
   UserProvidedDocumentInfo,
+  LoanChanceResult,
 } from '../types/index.js';
 import { sendEmail } from './emailSender.js';
 import { composeEmail, createEmailAgent } from '../agents/EmailAgent.js';
@@ -931,8 +932,8 @@ function calculateDSCR(loanAmount: number, rate: number, years: number, sde: num
   return Number((sde / annualDebtService).toFixed(2));
 }
 
-// Calculate SBA eligibility and approval chances for BUYERS (returns single-line string)
-export function calculateSBAEligibilityForBuyer(data: SBAEligibilityRequestBuyer): string {
+// Calculate SBA eligibility and approval chances for BUYERS - VAPI version (returns single-line string)
+export function calculateSBAEligibilityForBuyerVAPI(data: SBAEligibilityRequestBuyer): string {
   const purchasePrice = parseInt(data.purchasePrice);
   const availableCash = parseInt(data.availableCash);
   const businessSDE = parseInt(data.businessSDE || '0');
@@ -1140,6 +1141,238 @@ export function calculateSBAEligibilityForBuyer(data: SBAEligibilityRequestBuyer
   return parts.join(', ');
 }
 
+// Calculate SBA eligibility and approval chances for BUYERS (returns structured data)
+export function calculateSBAEligibilityForBuyer(data: SBAEligibilityRequestBuyer): LoanChanceResult {
+  const purchasePrice = parseInt(data.purchasePrice);
+  const availableCash = parseInt(data.availableCash);
+  const businessSDE = parseInt(data.businessSDE || '0');
+  const businessYearsRunning = typeof data.businessYearsRunning === 'number'
+    ? data.businessYearsRunning
+    : parseInt(data.businessYearsRunning as any) || 0;
+
+  const creditScoreValue = parseInt(data.buyerCreditScore || '0');
+  const isCitizen = data.isUSCitizen;
+
+  const downPaymentPercent = (availableCash / purchasePrice) * 100;
+  const typicalLoanAmount = purchasePrice * 0.9;
+  const dscr = calculateDSCR(typicalLoanAmount, 0.095, 10, businessSDE);
+
+  const reasons: string[] = [];
+  let score = 100;
+
+  // Citizenship Check (HARD STOP)
+  if (!isCitizen) {
+    return {
+      score: 0,
+      chance: 'low',
+      reasons: ['Non-US citizens are ineligible for SBA loans', 'Consider seller financing or alternative lending options']
+    };
+  }
+
+  // Credit Score Check
+  if (creditScoreValue > 0) {
+    if (creditScoreValue >= 720) {
+      reasons.push('Strong credit profile');
+    } else if (creditScoreValue >= 680) {
+      score -= 5;
+    } else if (creditScoreValue >= 650) {
+      score -= 15;
+      reasons.push('Credit score is on the lower end for SBA approval');
+    } else {
+      score -= 30;
+      reasons.push('Credit score below SBA typical minimum (650)');
+    }
+  }
+
+  // Business Age Check
+  if (businessYearsRunning >= 5) {
+    reasons.push('Well-established business history');
+  } else if (businessYearsRunning >= 2) {
+    score -= 5;
+  } else {
+    score -= 40;
+    reasons.push('Business must operate for minimum 2 years for SBA eligibility');
+  }
+
+  // Down Payment Check
+  if (downPaymentPercent >= 20) {
+    reasons.push('Substantial equity investment');
+  } else if (downPaymentPercent >= 10) {
+    score -= 10;
+  } else if (downPaymentPercent >= 5) {
+    score -= 20;
+    reasons.push('Low down payment may require seller financing to meet 10% equity requirement');
+  } else {
+    score -= 35;
+    reasons.push('Down payment below 5% minimum - will need seller financing on standby');
+  }
+
+  // Cash Flow / DSCR Check
+  if (businessSDE <= 0) {
+    score -= 20;
+    reasons.push('Cash flow information required for approval');
+  } else if (dscr >= 1.35) {
+    reasons.push('Strong debt service coverage ratio');
+  } else if (dscr >= 1.25) {
+    score -= 5;
+  } else if (dscr >= 1.15) {
+    score -= 15;
+    reasons.push('Cash flow is at minimum threshold for SBA approval');
+  } else {
+    score -= 40;
+    reasons.push('Business cash flow cannot support SBA loan payments');
+  }
+
+  // Industry Experience
+  if (data.industryExperience) {
+    const experience = data.industryExperience.toLowerCase();
+    if (experience.includes('owner') || experience.includes('manager') ||
+        experience.includes('director') || experience.match(/\d+\s*years?/)) {
+      reasons.push('Relevant industry experience strengthens application');
+      score += 5;
+    } else if (experience.includes('no') || experience.includes('none') ||
+               experience.includes('limited')) {
+      score -= 10;
+    }
+  }
+
+  score = Math.max(0, Math.min(100, score));
+
+  let chance: 'low' | 'medium' | 'high';
+  if (score >= 80) {
+    chance = 'high';
+  } else if (score >= 60) {
+    chance = 'medium';
+  } else {
+    chance = 'low';
+  }
+
+  return { score, chance, reasons };
+}
+
+// Calculate SBA eligibility and approval chances for OWNERS (returns structured data)
+export function calculateSBAEligibilityForOwner(data: SBAEligibilityRequestOwner): LoanChanceResult {
+  const monthlyRevenue = parseInt(data.monthlyRevenue || '0');
+  const monthlyExpenses = parseInt(data.monthlyExpenses || '0');
+  const existingDebtPayment = parseInt(data.existingDebtPayment || '0');
+  const requestedLoanAmount = parseInt(data.requestedLoanAmount || '0');
+  const loanPurpose = data.loanPurpose?.toLowerCase() || '';
+  const businessYearsRunning = typeof data.businessYearsRunning === 'number'
+    ? data.businessYearsRunning
+    : parseInt(data.businessYearsRunning as any) || 0;
+
+  const creditScoreValue = parseInt(data.ownerCreditScore || '0');
+  const isCitizen = data.isUSCitizen;
+
+  const monthlyNetIncome = monthlyRevenue - monthlyExpenses;
+  const annualNetIncome = monthlyNetIncome * 12;
+
+  const dscr = calculateDSCRForOwner(
+    annualNetIncome,
+    existingDebtPayment,
+    requestedLoanAmount,
+    0.095,
+    10
+  );
+
+  const reasons: string[] = [];
+  let score = 100;
+
+  // Citizenship Check (HARD STOP)
+  if (!isCitizen) {
+    return {
+      score: 0,
+      chance: 'low',
+      reasons: ['Non-US citizens are ineligible for SBA loans', 'Consider alternative lending options']
+    };
+  }
+
+  // Credit Score Check
+  if (creditScoreValue > 0) {
+    if (creditScoreValue >= 720) {
+      reasons.push('Strong credit profile');
+    } else if (creditScoreValue >= 680) {
+      score -= 5;
+    } else if (creditScoreValue >= 650) {
+      score -= 15;
+      reasons.push('Credit score is on the lower end for SBA approval');
+    } else {
+      score -= 30;
+      reasons.push('Credit score below SBA typical minimum (650)');
+    }
+  }
+
+  // Business Age Check
+  if (businessYearsRunning >= 5) {
+    reasons.push('Well-established business history');
+  } else if (businessYearsRunning >= 2) {
+    score -= 5;
+  } else {
+    score -= 40;
+    reasons.push('Business must operate for minimum 2 years for SBA eligibility');
+  }
+
+  // Cash Flow / DSCR Check
+  if (monthlyRevenue <= 0 || monthlyExpenses < 0) {
+    score -= 30;
+    reasons.push('Financial information required for approval');
+  } else if (monthlyNetIncome <= 0) {
+    score -= 50;
+    reasons.push('Business must show positive net income to qualify');
+  } else if (dscr >= 1.35) {
+    reasons.push('Strong debt service coverage ratio including existing debt');
+  } else if (dscr >= 1.25) {
+    score -= 5;
+  } else if (dscr >= 1.15) {
+    score -= 15;
+    reasons.push('Cash flow is at minimum threshold for SBA approval');
+  } else {
+    score -= 40;
+    reasons.push('Business cash flow cannot support additional SBA loan payments with existing debt');
+  }
+
+  // Existing Debt Consideration
+  if (existingDebtPayment > 0) {
+    const debtToIncomeRatio = (existingDebtPayment * 12) / annualNetIncome;
+    if (debtToIncomeRatio > 0.5) {
+      score -= 10;
+      reasons.push('High existing debt burden relative to income');
+    }
+  }
+
+  // Loan Amount Validation
+  if (requestedLoanAmount > annualNetIncome * 3) {
+    score -= 15;
+    reasons.push('Requested loan amount is high relative to annual income');
+  }
+
+  // Industry Experience
+  if (data.industryExperience) {
+    const experience = data.industryExperience.toLowerCase();
+    if (experience.includes('owner') || experience.includes('manager') ||
+        experience.includes('director') || experience.match(/\d+\s*years?/)) {
+      reasons.push('Relevant industry experience strengthens application');
+      score += 5;
+    } else if (experience.includes('no') || experience.includes('none') ||
+               experience.includes('limited')) {
+      score -= 10;
+    }
+  }
+
+  score = Math.max(0, Math.min(100, score));
+
+  let chance: 'low' | 'medium' | 'high';
+  if (score >= 80) {
+    chance = 'high';
+  } else if (score >= 60) {
+    chance = 'medium';
+  } else {
+    chance = 'low';
+  }
+
+  return { score, chance, reasons };
+}
+
 // Helper function to calculate DSCR for owners (includes existing debt)
 function calculateDSCRForOwner(
   netIncome: number,
@@ -1161,8 +1394,8 @@ function calculateDSCRForOwner(
   return Number((netIncome / annualDebtService).toFixed(2));
 }
 
-// Calculate SBA eligibility and approval chances for OWNERS (returns single-line string)
-export function calculateSBAEligibilityForOwner(data: SBAEligibilityRequestOwner): string {
+// Calculate SBA eligibility and approval chances for OWNERS - VAPI version (returns single-line string)
+export function calculateSBAEligibilityForOwnerVAPI(data: SBAEligibilityRequestOwner): string {
   const monthlyRevenue = parseInt(data.monthlyRevenue || '0');
   const monthlyExpenses = parseInt(data.monthlyExpenses || '0');
   const existingDebtPayment = parseInt(data.existingDebtPayment || '0');

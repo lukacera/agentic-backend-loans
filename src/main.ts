@@ -892,6 +892,26 @@ app.post('/vapi-ai', (req, res) => {
               };
             }
 
+            case 'captureRequestedLoanAmount': {
+              const { requestedLoanAmount } = functionArgs as { requestedLoanAmount?: number };
+              saveOrUpdateUserData(message.call?.id, { requestedLoanAmount });
+
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { requestedLoanAmount },
+                source: 'toolfn-call'
+              }, rooms);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: 'Requested loan amount captured successfully.'
+                })
+              };
+            }
+
             case 'captureExistingDebtPayment': {
               const { existingDebtPayment } = functionArgs as { existingDebtPayment?: number };
               saveOrUpdateUserData(message.call?.id, { existingDebtPayment });

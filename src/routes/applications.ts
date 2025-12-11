@@ -13,12 +13,15 @@ import {
   createOffer,
   updateOfferStatus,
   calculateSBAEligibilityForBuyer,
-  calculateSBAEligibilityForOwner
+  calculateSBAEligibilityForOwner,
+  calculateSBAEligibilityForBuyerVAPI,
+  calculateSBAEligibilityForOwnerVAPI
 } from '../services/applicationService.js';
 import {
   ApplicationSubmissionRequest,
   ApplicationStatus,
-  UserProvidedDocumentType
+  UserProvidedDocumentType,
+  LoanChanceResult
 } from '../types/index.js';
 import { Application } from '../models/Application.js';
 import { generatePresignedUrl } from '../services/s3Service.js';
@@ -1013,8 +1016,8 @@ router.post('/calculate-chances', async (req, res) => {
     // Check if type field exists to determine buyer vs owner flow
     const applicationType = toolCallArgs.type as string || 'buyer';
 
-    let result: string;
-
+    let chanceResult: LoanChanceResult;
+    let chanceResultVapi: string;
     if (applicationType.toLowerCase() === 'buyer') {
       // Buyer flow - validate buyer fields
       if (!toolCallArgs.purchasePrice || !toolCallArgs.availableCash || !toolCallArgs.businessSDE) {
@@ -1023,7 +1026,8 @@ router.post('/calculate-chances', async (req, res) => {
         });
       }
 
-      result = calculateSBAEligibilityForBuyer(toolCallArgs as any);
+      chanceResult = calculateSBAEligibilityForBuyer(toolCallArgs as any);
+      chanceResultVapi = calculateSBAEligibilityForBuyerVAPI(toolCallArgs as any);
     } else {
       // Owner flow - validate owner fields
       if (!toolCallArgs.monthlyRevenue || !toolCallArgs.monthlyExpenses || !toolCallArgs.requestedLoanAmount) {
@@ -1032,26 +1036,37 @@ router.post('/calculate-chances', async (req, res) => {
         });
       }
 
-      result = calculateSBAEligibilityForOwner(toolCallArgs as any);
+      chanceResult = calculateSBAEligibilityForOwner(toolCallArgs as any);
+      chanceResultVapi = calculateSBAEligibilityForOwnerVAPI(toolCallArgs as any);
     }
 
-    const toolCallId = data.message?.toolCallList?.[0]?.id || 'unknown';
+    // Broadcast structured result via websocket
+    websocketService.broadcast('calculate-chances', {
+      timestamp: new Date().toISOString(),
+      source: 'calculate-chances',
+      result: chanceResult
+    }, ["global"]);
 
     websocketService.broadcast('form-reveal', {
       timestamp: new Date().toISOString(),
-      source: 'calculate-chances'
+      source: 'backend'
     }, ["global"]);
+
+    const toolCallId = data.message?.toolCallList?.[0]?.id || 'unknown';
 
     res.status(200).json({
       results: [{
         toolCallId: toolCallId,
-        result: result
+        result: chanceResultVapi
       }]
     });
 
   } catch (error) {
     console.error('Error checking SBA eligibility:', error);
-    res.status(500).json({ error: 'Failed to check SBA eligibility' });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check SBA eligibility'
+    });
   }
 });
 

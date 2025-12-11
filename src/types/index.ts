@@ -534,3 +534,13 @@ export interface BankListResponse {
   page: number;
   pages: number;
 }
+
+// ==============================
+// LOAN ELIGIBILITY TYPES
+// ==============================
+
+export interface LoanChanceResult {
+  score: number;
+  chance: 'low' | 'medium' | 'high';
+  reasons: string[];
+}
