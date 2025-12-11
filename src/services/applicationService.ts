@@ -136,9 +136,7 @@ const processApplicationAsync = async (application: SBAApplication): Promise<voi
     // Clean up local files after successful upload
     await cleanupLocalFiles(generatedDocuments);
 
-
     // Email will be sent after documents are signed via submitApplicationToBank()
-
   } catch (error) {
     console.error('Error processing application:', error);
 
@@ -179,13 +177,18 @@ const generateSBADocuments = async (
         const documentAgent = createDocumentAgent();
         
         // Map applicant data to form fields using AI
+        // If applicantData.type is "buyer", set loanPurpose to "Business Acquisition"
+        const mappedApplicantData = {
+          ...applicantData,
+          ...(applicantData.type === "buyer" ? { loanPurpose: "Business Acquisition" } : {}),
+          "7(a) loan/04 loan/Surety Bonds1`": "7(a) loan",
+          businessType: "LLC",
+          infoCurrentDate: new Date().toLocaleDateString()
+        };
+
         const formData = await mapDataWithAI(
           formAnalysis.fields,
-          {...applicantData, 
-            "7(a) loan/04 loan/Surety Bonds1`": "7(a) loan", 
-            businessType: "LLC",
-            infoCurrentDate: new Date().toLocaleDateString()
-          },
+          mappedApplicantData,
           documentAgent,
           `This is an SBA loan application form (${formName}). Map the business application data to the appropriate form fields.`
         );

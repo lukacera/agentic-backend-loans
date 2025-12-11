@@ -118,9 +118,9 @@ export const fillPDFForm = async (
     // Get all available fields
     const formFields = form.getFields();
     const availableFieldNames = formFields.map(f => f.getName());
-    
     // Fill fields with provided data
     for (const [fieldName, value] of Object.entries(data)) {
+      console.log(`Filling field: ${fieldName} with value: ${value}`);
       try {
         if (availableFieldNames.includes(fieldName)) {
           const field = form.getField(fieldName);
@@ -203,7 +203,7 @@ export const mapDataWithAI = async (
   try {
     const fieldNames = formFields.map(f => f.name).join(', ');
     const userDataSample = JSON.stringify(userData, null, 2);
-    
+    console.log("userDataSample:", userDataSample);
     // System prompt - the instructions for the AI
     const systemPrompt = `You are a form-filling expert. Your task is to intelligently map user data to PDF form fields.
     Rules:

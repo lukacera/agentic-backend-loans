@@ -66,7 +66,7 @@ const vapi = new VapiClient({
 const createLLM = () => {
   return new ChatOpenAI({
     openAIApiKey: process.env.OPENAI_API_KEY,
-    modelName: 'gpt-3.5-turbo',
+    modelName: 'gpt-5',
     temperature: 0.7,
   });
 };
