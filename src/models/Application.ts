@@ -54,6 +54,27 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
     },
     loanPurpose: {
       type: String
+    },
+    ownerCreditScore: {
+      type: String
+    },
+    purchasePrice: {
+      type: String
+    },
+    availableCash: {
+      type: String
+    },
+    businessSDE: {
+      type: String
+    },
+    buyerCreditScore: {
+      type: String
+    },
+    industryExperience: {
+      type: String
+    },
+    businessYearsRunning: {
+      type: Schema.Types.Mixed
     }
   },
   status: {

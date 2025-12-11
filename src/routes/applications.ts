@@ -21,13 +21,14 @@ import {
   ApplicationSubmissionRequest,
   ApplicationStatus,
   UserProvidedDocumentType,
-  LoanChanceResult
+  LoanChanceResult,
+  SBAApplicationData
 } from '../types/index.js';
 import { Application } from '../models/Application.js';
 import { generatePresignedUrl } from '../services/s3Service.js';
 import { formatApplicationStatus } from '../utils/formatters.js';
 import websocketService from '../services/websocket.js';
-;
+
 const router = express.Router();
 
 const SAMPLE_CONTRACT_FILE_NAME = 'Sample_Contract.pdf';
@@ -147,6 +148,61 @@ const extractBusinessPhone = (
   return null;
 };
 
+interface NormalizedFieldResult {
+  valid: boolean;
+  stringValue?: string;
+  numberValue?: number;
+}
+
+const normalizeNonEmptyString = (value: unknown): NormalizedFieldResult => {
+  if (value === undefined || value === null) {
+    return { valid: false };
+  }
+
+  const stringValue = String(value).trim();
+
+  if (stringValue.length === 0) {
+    return { valid: false };
+  }
+
+  return { valid: true, stringValue };
+};
+
+const normalizeNumericInput = (value: unknown): NormalizedFieldResult => {
+  if (value === undefined || value === null) {
+    return { valid: false };
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      return { valid: false };
+    }
+    return {
+      valid: true,
+      stringValue: value.toString(),
+      numberValue: value
+    };
+  }
+
+  const stringValue = String(value).trim();
+
+  if (stringValue.length === 0) {
+    return { valid: false };
+  }
+
+  const numberValue = Number(stringValue);
+
+  if (Number.isNaN(numberValue) || !Number.isFinite(numberValue)) {
+    return { valid: false };
+  }
+
+  return {
+    valid: true,
+    stringValue,
+    numberValue
+  };
+};
+
 // POST /api/applications - Submit new SBA loan application
 router.post('/', async (req, res) => {
   try {
@@ -190,15 +246,141 @@ router.post('/', async (req, res) => {
     }
     
     // Create application
-    const result = await createApplication({
+    const userType = req.body.userType === 'owner' ? 'owner' : 'buyer';
+    const applicationPayload: SBAApplicationData = {
       name: name.trim(),
       businessName: businessName.trim(),
       businessPhoneNumber: businessPhone.trim(),
       creditScore,
       yearFounded,
       isUSCitizen: req.body.isUSCitizen === true,
-      userType: req.body.userType === 'owner' ? 'owner' : 'buyer'
-    });
+      userType
+    };
+
+    if (typeof req.body.annualRevenue === 'number') {
+      applicationPayload.annualRevenue = req.body.annualRevenue;
+    } else if (req.body.annualRevenue !== undefined && req.body.annualRevenue !== null) {
+      const parsedAnnualRevenue = Number(req.body.annualRevenue);
+      if (!Number.isNaN(parsedAnnualRevenue)) {
+        applicationPayload.annualRevenue = parsedAnnualRevenue;
+      }
+    }
+
+    if (userType === 'owner') {
+      const ownerFieldConfigs: Array<{ key: string; type: 'numeric' | 'string' }> = [
+        { key: 'monthlyRevenue', type: 'numeric' },
+        { key: 'monthlyExpenses', type: 'numeric' },
+        { key: 'existingDebtPayment', type: 'numeric' },
+        { key: 'requestedLoanAmount', type: 'numeric' },
+        { key: 'loanPurpose', type: 'string' },
+        { key: 'ownerCreditScore', type: 'numeric' },
+        { key: 'businessYearsRunning', type: 'numeric' }
+      ];
+
+      const ownerErrors: string[] = [];
+      const ownerValues: Record<string, string | number> = {};
+
+      for (const field of ownerFieldConfigs) {
+        const rawValue = req.body[field.key];
+
+        if (field.type === 'numeric') {
+          const normalized = normalizeNumericInput(rawValue);
+
+          if (!normalized.valid) {
+            ownerErrors.push(`Field ${field.key} is required and must be a valid number for owner applications`);
+            continue;
+          }
+
+          if (field.key === 'businessYearsRunning') {
+            ownerValues[field.key] = normalized.numberValue ?? Number(normalized.stringValue as string);
+          } else {
+            ownerValues[field.key] = normalized.stringValue as string;
+          }
+
+        } else {
+          const normalized = normalizeNonEmptyString(rawValue);
+
+          if (!normalized.valid) {
+            ownerErrors.push(`Field ${field.key} is required for owner applications`);
+            continue;
+          }
+
+          ownerValues[field.key] = normalized.stringValue as string;
+        }
+      }
+
+      if (ownerErrors.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: ownerErrors.join('; ')
+        });
+      }
+
+      applicationPayload.monthlyRevenue = ownerValues.monthlyRevenue as string;
+      applicationPayload.monthlyExpenses = ownerValues.monthlyExpenses as string;
+      applicationPayload.existingDebtPayment = ownerValues.existingDebtPayment as string;
+      applicationPayload.requestedLoanAmount = ownerValues.requestedLoanAmount as string;
+      applicationPayload.loanPurpose = ownerValues.loanPurpose as string;
+      applicationPayload.ownerCreditScore = ownerValues.ownerCreditScore as string;
+      applicationPayload.businessYearsRunning = ownerValues.businessYearsRunning as number;
+    } else {
+      const buyerFieldConfigs: Array<{ key: string; type: 'numeric' | 'string' }> = [
+        { key: 'purchasePrice', type: 'numeric' },
+        { key: 'availableCash', type: 'numeric' },
+        { key: 'businessSDE', type: 'numeric' },
+        { key: 'industryExperience', type: 'string' },
+        { key: 'buyerCreditScore', type: 'numeric' },
+        { key: 'businessYearsRunning', type: 'numeric' }
+      ];
+
+      const buyerErrors: string[] = [];
+      const buyerValues: Record<string, string | number> = {};
+
+      for (const field of buyerFieldConfigs) {
+        const rawValue = req.body[field.key];
+
+        if (field.type === 'numeric') {
+          const normalized = normalizeNumericInput(rawValue);
+
+          if (!normalized.valid) {
+            buyerErrors.push(`Field ${field.key} is required and must be a valid number for buyer applications`);
+            continue;
+          }
+
+          if (field.key === 'businessYearsRunning') {
+            buyerValues[field.key] = normalized.numberValue ?? Number(normalized.stringValue as string);
+          } else {
+            buyerValues[field.key] = normalized.stringValue as string;
+          }
+
+        } else {
+          const normalized = normalizeNonEmptyString(rawValue);
+
+          if (!normalized.valid) {
+            buyerErrors.push(`Field ${field.key} is required for buyer applications`);
+            continue;
+          }
+
+          buyerValues[field.key] = normalized.stringValue as string;
+        }
+      }
+
+      if (buyerErrors.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: buyerErrors.join('; ')
+        });
+      }
+
+      applicationPayload.purchasePrice = buyerValues.purchasePrice as string;
+      applicationPayload.availableCash = buyerValues.availableCash as string;
+      applicationPayload.businessSDE = buyerValues.businessSDE as string;
+      applicationPayload.industryExperience = buyerValues.industryExperience as string;
+      applicationPayload.buyerCreditScore = buyerValues.buyerCreditScore as string;
+      applicationPayload.businessYearsRunning = buyerValues.businessYearsRunning as number;
+    }
+
+    const result = await createApplication(applicationPayload);
     
     res.status(201).json({
       success: true,
