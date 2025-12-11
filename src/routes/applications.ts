@@ -150,13 +150,13 @@ const extractBusinessPhone = (
 // POST /api/applications - Submit new SBA loan application
 router.post('/', async (req, res) => {
   try {
-    const { name, businessName, businessPhone, creditScore, annualRevenue, yearFounded }: ApplicationSubmissionRequest = req.body;
+    const { name, businessName, businessPhone, creditScore, yearFounded }: ApplicationSubmissionRequest = req.body;
     
     // Validate required fields
-    if (!name || !businessName || !businessPhone || !creditScore || !annualRevenue || !yearFounded) {
+    if (!name || !businessName || !businessPhone || !yearFounded) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: name, businessName, businessPhone, creditScore, annualRevenue, and yearFounded are required'
+        error: 'Missing required fields: name, businessName, businessPhone, and yearFounded are required'
       });
     }
     
@@ -182,21 +182,6 @@ router.post('/', async (req, res) => {
       });
     }
     
-    // Validate field ranges
-    if (creditScore < 300 || creditScore > 850) {
-      return res.status(400).json({
-        success: false,
-        error: 'Credit score must be between 300 and 850'
-      });
-    }
-    
-    if (annualRevenue < 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Annual revenue must be a positive number'
-      });
-    }
-    
     if (yearFounded < 0) {
       return res.status(400).json({
         success: false,
@@ -210,8 +195,9 @@ router.post('/', async (req, res) => {
       businessName: businessName.trim(),
       businessPhoneNumber: businessPhone.trim(),
       creditScore,
-      annualRevenue,
-      yearFounded
+      yearFounded,
+      isUSCitizen: req.body.isUSCitizen === true,
+      userType: req.body.userType === 'owner' ? 'owner' : 'buyer'
     });
     
     res.status(201).json({

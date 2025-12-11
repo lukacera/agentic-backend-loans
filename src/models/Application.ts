@@ -18,21 +18,42 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
       required: true,
       trim: true
     },
+    yearFounded: {
+      type: Schema.Types.Mixed,
+      required: true
+    },
+    isUSCitizen: {
+      type: Boolean,
+      required: true
+    },
     creditScore: {
       type: Number,
       required: true,
       min: 300,
       max: 850
     },
+    userType: {
+      type: String,
+      required: true,
+      enum: ['owner', 'buyer']
+    },
     annualRevenue: {
       type: Number,
-      required: true,
-      min: 0
     },
-    yearFounded: {
-      type: Number,
-      required: true,
-      min: 0
+    monthlyRevenue: {
+      type: String
+    },
+    monthlyExpenses: {
+      type: String
+    },
+    existingDebtPayment: {
+      type: String
+    },
+    requestedLoanAmount: {
+      type: String
+    },
+    loanPurpose: {
+      type: String
     }
   },
   status: {

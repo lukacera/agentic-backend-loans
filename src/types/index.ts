@@ -278,9 +278,17 @@ export interface SBAApplicationData {
   name: string;
   businessName: string;
   businessPhoneNumber: string;
+  isUSCitizen: boolean;
   creditScore: number;
-  annualRevenue: number;
   yearFounded: number;
+  userType: "owner" | "buyer";
+  annualRevenue?: number;
+  monthlyRevenue?: string;
+  monthlyExpenses?: string;
+  existingDebtPayment?: string;
+  requestedLoanAmount?: string;
+  loanPurpose?: string;
+  ownerCreditScore?: string;
 }
 
 export enum UserProvidedDocumentType {

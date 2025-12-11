@@ -42,7 +42,6 @@ interface SBAEligibilityRequestOwner {
   ownerCreditScore: string;
   isUSCitizen: boolean;
   businessYearsRunning: string | number;
-  industryExperience?: string;
 }
 
 interface SBAEligibilityResponse {
@@ -614,7 +613,7 @@ const sendApplicationEmailWithS3Docs = async (
       tone: 'PROFESSIONAL' as any,
       keyPoints: [
         `New SBA loan application from ${application.applicantData.businessName}`,
-        `Annual revenue: $${application.applicantData.annualRevenue.toLocaleString()}`,
+        `Annual revenue: $${application.applicantData.annualRevenue?.toLocaleString()}`,
         `Credit score: ${application.applicantData.creditScore}`,
         'All required SBA forms completed, signed, and attached',
         'Supporting applicant-provided documents attached',
@@ -1346,19 +1345,6 @@ export function calculateSBAEligibilityForOwner(data: SBAEligibilityRequestOwner
     reasons.push('Requested loan amount is high relative to annual income');
   }
 
-  // Industry Experience
-  if (data.industryExperience) {
-    const experience = data.industryExperience.toLowerCase();
-    if (experience.includes('owner') || experience.includes('manager') ||
-        experience.includes('director') || experience.match(/\d+\s*years?/)) {
-      reasons.push('Relevant industry experience strengthens application');
-      score += 5;
-    } else if (experience.includes('no') || experience.includes('none') ||
-               experience.includes('limited')) {
-      score -= 10;
-    }
-  }
-
   score = Math.max(0, Math.min(100, score));
 
   let chance: 'low' | 'medium' | 'high';
@@ -1554,20 +1540,6 @@ export function calculateSBAEligibilityForOwnerVAPI(data: SBAEligibilityRequestO
     score -= 15;
     reasons.push('Requested loan amount is high relative to annual income');
     recommendations.push('Consider reducing loan request to align with cash flow capacity');
-  }
-
-  // 8. Industry Experience (bonus factor)
-  if (data.industryExperience) {
-    const experience = data.industryExperience.toLowerCase();
-    if (experience.includes('owner') || experience.includes('manager') ||
-        experience.includes('director') || experience.match(/\d+\s*years?/)) {
-      reasons.push('Relevant industry experience strengthens application');
-      score += 5; // Bonus points
-    } else if (experience.includes('no') || experience.includes('none') ||
-               experience.includes('limited')) {
-      score -= 10;
-      recommendations.push('Develop detailed business plan to offset limited industry experience');
-    }
   }
 
   // Calculate final approval chance
