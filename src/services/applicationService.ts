@@ -189,11 +189,14 @@ const generateSBADocuments = async (
             `- If applicantData.userType is "buyer", set Purpose of the loan to "Business Acquisition".`,
             `- If applicantData.userType is "owner", set Purpose of the loan to the value in applicantData.loanPurpose; if you cannot find the checkbox in the form with it, check "Other" and write it in the provided field.`,
             `- For SBAForm413.pdf, set the checkbox for "7(a) loan / 504 loan / Surety Bonds" to checked.`,
+            `- For SBAForm1919.pdf, only 1 purpose of loan field can be checked`,
             `- For all forms, set Business/Entity Type to "LLC".`,
             `- For all forms, leave TIN/EIN and Primary Industry blank.`,
-            `- For all (Owner) (Legal) Name fields, use applicantData.name.`,
+            `- For all Owner Legal Name fields, use applicantData.name. THIS DOES NOT APPLY to lists/tables containing multiple owners - you are supposed to fill just the first row there.`,
             `- For all Owner position fields, use "Owner".`,
             `- For Veteran Status, use non veteran`,
+            `- For Race, use "white"`,
+            `- For ethnicity, use "not hispanic or latino"`,
             `- For Sex, if you can figure it out from the name, set it accordingly; otherwise, set to "Male".`,
             `- For all ownership percentage fields, set to "100%".`,
             `- For all fields which ask for date informations is current of, or today's date, set to today's date.`,
@@ -976,6 +979,18 @@ export function calculateSBAEligibilityForBuyerVAPI(data: SBAEligibilityRequestB
     return 'Ineligible for SBA loan, Non-US citizens are ineligible for SBA loans, Recommendation: Consider seller financing or alternative lending options';
   }
 
+  if (Number.isNaN(creditScoreValue) || creditScoreValue < 650) {
+    return 'Ineligible for SBA loan, Credit score below 650 minimum requirement, Recommendation: Improve personal credit profile before reapplying';
+  }
+
+  if (businessYearsRunning < 2) {
+    return 'Ineligible for SBA loan, Business must operate for at least 2 years under current ownership, Recommendation: Reapply once the business reaches 24 months of operating history';
+  }
+
+  if (!Number.isFinite(businessSDE) || businessSDE <= 0) {
+    return 'Ineligible for SBA loan, Business must demonstrate positive seller discretionary earnings (SDE), Recommendation: Provide updated financials showing profitable operations';
+  }
+
   // 2. Credit Score Check
   let creditScoreCheck = { passed: true, message: 'Credit score not provided' };
 
@@ -1017,25 +1032,20 @@ export function calculateSBAEligibilityForBuyerVAPI(data: SBAEligibilityRequestB
     }
   }
 
+  // Immediate rejection if buyer equity below 10%
+  if (!Number.isFinite(downPaymentPercent) || downPaymentPercent < 10) {
+    return 'Ineligible for SBA loan, Buyer equity below required 10% down payment, Recommendation: Increase cash reserves or secure seller financing to reach 10% equity';
+  }
+
   // 4. Down Payment Check
   let downPaymentCheck = { passed: true, message: '' };
 
   if (downPaymentPercent >= 20) {
     downPaymentCheck = { passed: true, message: `Strong down payment (${downPaymentPercent.toFixed(1)}%) ✓` };
     reasons.push('Substantial equity investment');
-  } else if (downPaymentPercent >= 10) {
+  } else {
     downPaymentCheck = { passed: true, message: `Adequate down payment (${downPaymentPercent.toFixed(1)}%) ✓` };
     score -= 10;
-  } else if (downPaymentPercent >= 5) {
-    downPaymentCheck = { passed: true, message: `Minimum down payment (${downPaymentPercent.toFixed(1)}%)` };
-    score -= 20;
-    reasons.push('Low down payment may require seller financing to meet 10% equity requirement');
-    recommendations.push('Try to increase down payment to 10%+ for better approval odds');
-  } else {
-    downPaymentCheck = { passed: false, message: `Insufficient down payment (${downPaymentPercent.toFixed(1)}% < 5% minimum)` };
-    score -= 35;
-    reasons.push('Down payment below 5% minimum - will need seller financing on standby');
-    recommendations.push('Increase cash reserves or negotiate seller financing for equity gap');
   }
 
   // 5. Cash Flow / DSCR Check
@@ -1178,6 +1188,54 @@ export function calculateSBAEligibilityForBuyer(data: SBAEligibilityRequestBuyer
     };
   }
 
+  // Down payment minimum check (HARD STOP)
+  if (!Number.isFinite(downPaymentPercent) || downPaymentPercent < 10) {
+    return {
+      score: 0,
+      chance: 'low',
+      reasons: [
+        'Buyer equity below required 10% down payment for SBA financing',
+        'Increase cash reserves or secure seller financing to reach 10% equity'
+      ]
+    };
+  }
+
+  // Credit score minimum check (HARD STOP)
+  if (Number.isNaN(creditScoreValue) || creditScoreValue < 650) {
+    return {
+      score: 0,
+      chance: 'low',
+      reasons: [
+        'Credit score below 650 minimum requirement for SBA financing',
+        'Improve personal credit profile before reapplying'
+      ]
+    };
+  }
+
+  // Operating history minimum check (HARD STOP)
+  if (businessYearsRunning < 2) {
+    return {
+      score: 0,
+      chance: 'low',
+      reasons: [
+        'Business has operated for less than 2 years',
+        'Reapply once the business reaches 24 months of operating history'
+      ]
+    };
+  }
+
+  // Positive SDE check (HARD STOP)
+  if (!Number.isFinite(businessSDE) || businessSDE <= 0) {
+    return {
+      score: 0,
+      chance: 'low',
+      reasons: [
+        'Business must demonstrate positive seller discretionary earnings (SDE)',
+        'Provide updated financial statements showing profitable operations'
+      ]
+    };
+  }
+
   // Credit Score Check
   if (creditScoreValue > 0) {
     if (creditScoreValue >= 720) {
@@ -1203,17 +1261,12 @@ export function calculateSBAEligibilityForBuyer(data: SBAEligibilityRequestBuyer
     reasons.push('Business must operate for minimum 2 years for SBA eligibility');
   }
 
-  // Down Payment Check
+  // Down Payment Check (only runs for 10%+ equity)
   if (downPaymentPercent >= 20) {
     reasons.push('Substantial equity investment');
-  } else if (downPaymentPercent >= 10) {
-    score -= 10;
-  } else if (downPaymentPercent >= 5) {
-    score -= 20;
-    reasons.push('Low down payment may require seller financing to meet 10% equity requirement');
   } else {
-    score -= 35;
-    reasons.push('Down payment below 5% minimum - will need seller financing on standby');
+    score -= 10;
+    reasons.push('Down payment meets minimum 10% equity requirement');
   }
 
   // Cash Flow / DSCR Check
