@@ -733,7 +733,6 @@ export const submitApplicationToBank = async (
     application.emailSentAt = new Date();
     await application.save();
 
-
     return {
       status: ApplicationStatus.SENT_TO_BANK,
       message: `Application submitted to ${bankSubmissions.length} bank(s) successfully`
