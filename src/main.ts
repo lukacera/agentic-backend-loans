@@ -31,6 +31,7 @@ app.use(cors({
     const allowedOrigins = [
       'http://localhost:3000',
       'http://localhost:5173',
+      'http://localhost:5174',
       'https://new-torvely-dashboard.vercel.app',
       'https://dashboard.vapi.ai',
       "chrome-extension://oeaoefimiancojpimjmkigjdkpaenbdg"

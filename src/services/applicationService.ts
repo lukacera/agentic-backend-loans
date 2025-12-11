@@ -173,26 +173,33 @@ const generateSBADocuments = async (
       try {
         // Extract form fields from the PDF template
         const formAnalysis = await extractFormFields(templatePath);
+
         // Create document agent for AI processing
         const documentAgent = createDocumentAgent();
         
         // Map applicant data to form fields using AI
         // If applicantData.type is "buyer", set loanPurpose to "Business Acquisition"
-        const mappedApplicantData = {
-          ...applicantData,
-          ...(applicantData.type === "buyer" ? { loanPurpose: "Business Acquisition" } : {}),
-          "7(a) loan/04 loan/Surety Bonds1`": "7(a) loan",
-          businessType: "LLC",
-          infoCurrentDate: new Date().toLocaleDateString()
-        };
-
         const formData = await mapDataWithAI(
           formAnalysis.fields,
-          mappedApplicantData,
+          applicantData,
           documentAgent,
-          `This is an SBA loan application form (${formName}). Map the business application data to the appropriate form fields.`
+          [
+            `This is an SBA loan application form (${formName}).`,
+            `Rules for mapping fields:`,
+            `- If applicantData.userType is "buyer", set Purpose of the loan to "Business Acquisition".`,
+            `- If applicantData.userType is "owner", set Purpose of the loan to the value in applicantData.loanPurpose; if you cannot find the checkbox in the form with it, check "Other" and write it in the provided field.`,
+            `- For SBAForm413.pdf, set the checkbox for "7(a) loan / 504 loan / Surety Bonds" to checked.`,
+            `- For all forms, set Business/Entity Type to "LLC".`,
+            `- For all forms, leave TIN/EIN and Primary Industry blank.`,
+            `- For all (Owner) (Legal) Name fields, use applicantData.name.`,
+            `- For all Owner position fields, use "Owner".`,
+            `- For Veteran Status, use non veteran`,
+            `- For Sex, if you can figure it out from the name, set it accordingly; otherwise, set to "Male".`,
+            `- For all ownership percentage fields, set to "100%".`,
+            `- For all fields which ask for date informations is current of, or today's date, set to today's date.`,
+            `- Map the business application data to the appropriate form fields.`,
+          ].join('\n')
         );
-        
         // Fill the PDF form
         const fillResult = await fillPDFForm(
           templatePath,

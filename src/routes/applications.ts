@@ -52,7 +52,6 @@ const extractToolCallArguments = (payload: any): Record<string, unknown> => {
 
   const toolCalls = payload?.message?.toolCalls;
   if (!Array.isArray(toolCalls)) {
-    console.log('No tool calls found in payload');
     return aggregatedArgs;
   }
 
@@ -79,7 +78,6 @@ const extractToolCallArguments = (payload: any): Record<string, unknown> => {
       Object.assign(aggregatedArgs, parsedArgs);
     }
   }
-  console.log('Extracted tool call arguments:', aggregatedArgs);
   return aggregatedArgs;
 };
 
@@ -417,12 +415,10 @@ router.post('/name', async (req, res) => {
     }
 
     if (!application && businessPhone) {
-      console.log('Searching application by phone number:', businessPhone);
       application = await getApplicationByPhone(businessPhone);
     }
 
     if (!application) {
-      console.log('No application found for businessName or businessPhone');
       return res.status(404).json({
         success: false,
         error: 'Application not found'
