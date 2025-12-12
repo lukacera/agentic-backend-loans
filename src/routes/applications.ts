@@ -237,7 +237,8 @@ router.post('/', async (req, res) => {
     }
     
     // Create application
-    const userType = req.body.userType === 'owner' ? 'owner' : 'buyer';
+    const userType = req.body.type === 'owner' ? 'owner' : 'buyer';
+
     const applicationPayload: SBAApplicationData = {
       name: name.trim(),
       businessName: businessName.trim(),
@@ -256,7 +257,7 @@ router.post('/', async (req, res) => {
         applicationPayload.annualRevenue = parsedAnnualRevenue;
       }
     }
-
+    console.log(userType)
     if (userType === 'owner') {
       const ownerFieldConfigs: Array<{ key: string; type: 'numeric' | 'string' }> = [
         { key: 'monthlyRevenue', type: 'numeric' },
@@ -315,6 +316,7 @@ router.post('/', async (req, res) => {
       applicationPayload.creditScore = Number(ownerValues.creditScore)
       applicationPayload.yearFounded = ownerValues.yearFounded as number;
     } else {
+      console.log("its a buyer");
       const buyerFieldConfigs: Array<{ key: string; type: 'numeric' | 'string' }> = [
         { key: 'purchasePrice', type: 'numeric' },
         { key: 'availableCash', type: 'numeric' },
@@ -1175,6 +1177,7 @@ router.post('/calculate-chances', async (req, res) => {
 
     let chanceResult: LoanChanceResult;
     let chanceResultVapi: string;
+    console
     if (applicationType.toLowerCase() === 'buyer') {
       // Buyer flow - validate buyer fields
       console.log('Calculating chances for buyer with args:', toolCallArgs);
