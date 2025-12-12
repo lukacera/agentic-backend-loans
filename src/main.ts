@@ -472,6 +472,26 @@ app.post('/vapi-ai', (req, res) => {
               };
             }
 
+            case 'captureIndustryExperience': {
+              const { industryExperience } = functionArgs as { industryExperience?: string };
+              saveOrUpdateUserData(message.call?.id, { industryExperience });
+
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { industryExperience },
+                source: 'toolfn-call'
+              }, rooms);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: 'Industry experience captured successfully.'
+                })
+              };
+            }
+
             case 'captureBusinessPhone': {
               const { businessPhone } = functionArgs as { businessPhone?: string };
               saveOrUpdateUserData(message.call?.id, { businessPhone });
@@ -688,6 +708,26 @@ app.post('/vapi-ai', (req, res) => {
                 result: JSON.stringify({
                   success: true,
                   message: 'User type captured successfully.'
+                })
+              };
+            }
+
+            case 'captureAvailableCash': {
+              const { availableCash } = functionArgs as { availableCash?: number };
+              saveOrUpdateUserData(message.call?.id, { availableCash });
+
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { availableCash },
+                source: 'toolfn-call'
+              }, rooms);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: 'Available cash captured successfully.'
                 })
               };
             }
