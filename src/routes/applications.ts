@@ -12,16 +12,22 @@ import {
   addUserProvidedDocuments,
   createOffer,
   updateOfferStatus,
-  calculateSBAEligibility
+  calculateSBAEligibilityForBuyer,
+  calculateSBAEligibilityForOwner,
+  calculateSBAEligibilityForBuyerVAPI,
+  calculateSBAEligibilityForOwnerVAPI
 } from '../services/applicationService.js';
 import {
   ApplicationSubmissionRequest,
   ApplicationStatus,
-  UserProvidedDocumentType
+  UserProvidedDocumentType,
+  LoanChanceResult,
+  SBAApplicationData
 } from '../types/index.js';
 import { Application } from '../models/Application.js';
 import { generatePresignedUrl } from '../services/s3Service.js';
 import { formatApplicationStatus } from '../utils/formatters.js';
+import websocketService from '../services/websocket.js';
 
 const router = express.Router();
 
@@ -72,7 +78,6 @@ const extractToolCallArguments = (payload: any): Record<string, unknown> => {
       Object.assign(aggregatedArgs, parsedArgs);
     }
   }
-
   return aggregatedArgs;
 };
 
@@ -141,16 +146,71 @@ const extractBusinessPhone = (
   return null;
 };
 
+interface NormalizedFieldResult {
+  valid: boolean;
+  stringValue?: string;
+  numberValue?: number;
+}
+
+const normalizeNonEmptyString = (value: unknown): NormalizedFieldResult => {
+  if (value === undefined || value === null) {
+    return { valid: false };
+  }
+
+  const stringValue = String(value).trim();
+
+  if (stringValue.length === 0) {
+    return { valid: false };
+  }
+
+  return { valid: true, stringValue };
+};
+
+const normalizeNumericInput = (value: unknown): NormalizedFieldResult => {
+  if (value === undefined || value === null) {
+    return { valid: false };
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      return { valid: false };
+    }
+    return {
+      valid: true,
+      stringValue: value.toString(),
+      numberValue: value
+    };
+  }
+
+  const stringValue = String(value).trim();
+
+  if (stringValue.length === 0) {
+    return { valid: false };
+  }
+
+  const numberValue = Number(stringValue);
+
+  if (Number.isNaN(numberValue) || !Number.isFinite(numberValue)) {
+    return { valid: false };
+  }
+
+  return {
+    valid: true,
+    stringValue,
+    numberValue
+  };
+};
+
 // POST /api/applications - Submit new SBA loan application
 router.post('/', async (req, res) => {
   try {
-    const { name, businessName, businessPhone, creditScore, annualRevenue, yearFounded }: ApplicationSubmissionRequest = req.body;
+    const { name, businessName, businessPhone, creditScore, yearFounded }: ApplicationSubmissionRequest = req.body;
     
     // Validate required fields
-    if (!name || !businessName || !businessPhone || !creditScore || !annualRevenue || !yearFounded) {
+    if (!name || !businessName || !yearFounded) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: name, businessName, businessPhone, creditScore, annualRevenue, and yearFounded are required'
+        error: 'Missing required fields: name, businessName, and yearFounded are required'
       });
     }
     
@@ -169,28 +229,6 @@ router.post('/', async (req, res) => {
       });
     }
     
-    if (typeof businessPhone !== 'string' || businessPhone.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Business phone number must be a non-empty string'
-      });
-    }
-    
-    // Validate field ranges
-    if (creditScore < 300 || creditScore > 850) {
-      return res.status(400).json({
-        success: false,
-        error: 'Credit score must be between 300 and 850'
-      });
-    }
-    
-    if (annualRevenue < 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Annual revenue must be a positive number'
-      });
-    }
-    
     if (yearFounded < 0) {
       return res.status(400).json({
         success: false,
@@ -199,14 +237,143 @@ router.post('/', async (req, res) => {
     }
     
     // Create application
-    const result = await createApplication({
+    const userType = req.body.type === 'owner' ? 'owner' : 'buyer';
+
+    const applicationPayload: SBAApplicationData = {
       name: name.trim(),
       businessName: businessName.trim(),
       businessPhoneNumber: businessPhone.trim(),
       creditScore,
-      annualRevenue,
-      yearFounded
-    });
+      yearFounded,
+      isUSCitizen: req.body.isUSCitizen === true,
+      userType
+    };
+
+    if (typeof req.body.annualRevenue === 'number') {
+      applicationPayload.annualRevenue = req.body.annualRevenue;
+    } else if (req.body.annualRevenue !== undefined && req.body.annualRevenue !== null) {
+      const parsedAnnualRevenue = Number(req.body.annualRevenue);
+      if (!Number.isNaN(parsedAnnualRevenue)) {
+        applicationPayload.annualRevenue = parsedAnnualRevenue;
+      }
+    }
+    console.log(userType)
+    if (userType === 'owner') {
+      const ownerFieldConfigs: Array<{ key: string; type: 'numeric' | 'string' }> = [
+        { key: 'monthlyRevenue', type: 'numeric' },
+        { key: 'monthlyExpenses', type: 'numeric' },
+        { key: 'existingDebtPayment', type: 'numeric' },
+        { key: 'requestedLoanAmount', type: 'numeric' },
+        { key: 'loanPurpose', type: 'string' },
+        { key: 'creditScore', type: 'numeric' },
+        { key: 'yearFounded', type: 'numeric' }
+      ];
+
+      const ownerErrors: string[] = [];
+      const ownerValues: Record<string, string | number> = {};
+
+      for (const field of ownerFieldConfigs) {
+        const rawValue = req.body[field.key];
+
+        if (field.type === 'numeric') {
+          const normalized = normalizeNumericInput(rawValue);
+
+          if (!normalized.valid) {
+            ownerErrors.push(`Field ${field.key} is required and must be a valid number for owner applications`);
+            continue;
+          }
+
+          if (field.key === 'yearFounded') {
+            ownerValues[field.key] = normalized.numberValue ?? Number(normalized.stringValue as string);
+          } else {
+            ownerValues[field.key] = normalized.stringValue as string;
+          }
+
+        } else {
+          const normalized = normalizeNonEmptyString(rawValue);
+
+          if (!normalized.valid) {
+            ownerErrors.push(`Field ${field.key} is required for owner applications`);
+            continue;
+          }
+
+          ownerValues[field.key] = normalized.stringValue as string;
+        }
+      }
+
+      if (ownerErrors.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: ownerErrors.join('; ')
+        });
+      }
+
+      applicationPayload.monthlyRevenue = ownerValues.monthlyRevenue as string;
+      applicationPayload.monthlyExpenses = ownerValues.monthlyExpenses as string;
+      applicationPayload.existingDebtPayment = ownerValues.existingDebtPayment as string;
+      applicationPayload.requestedLoanAmount = ownerValues.requestedLoanAmount as string;
+      applicationPayload.loanPurpose = ownerValues.loanPurpose as string;
+      applicationPayload.creditScore = Number(ownerValues.creditScore)
+      applicationPayload.yearFounded = ownerValues.yearFounded as number;
+    } else {
+      console.log("its a buyer");
+      const buyerFieldConfigs: Array<{ key: string; type: 'numeric' | 'string' }> = [
+        { key: 'purchasePrice', type: 'numeric' },
+        { key: 'availableCash', type: 'numeric' },
+        { key: 'businessCashFlow', type: 'numeric' },
+        { key: 'industryExperience', type: 'string' },
+        { key: 'creditScore', type: 'numeric' },
+        { key: 'yearFounded', type: 'numeric' }
+      ];
+
+      const buyerErrors: string[] = [];
+      const buyerValues: Record<string, string | number> = {};
+
+      for (const field of buyerFieldConfigs) {
+        const rawValue = req.body[field.key];
+
+        if (field.type === 'numeric') {
+          const normalized = normalizeNumericInput(rawValue);
+
+          if (!normalized.valid) {
+            buyerErrors.push(`Field ${field.key} is required and must be a valid number for buyer applications`);
+            continue;
+          }
+
+          if (field.key === 'yearFounded') {
+            buyerValues[field.key] = normalized.numberValue ?? Number(normalized.stringValue as string);
+          } else {
+            buyerValues[field.key] = normalized.stringValue as string;
+          }
+
+        } else {
+          const normalized = normalizeNonEmptyString(rawValue);
+
+          if (!normalized.valid) {
+            buyerErrors.push(`Field ${field.key} is required for buyer applications`);
+            continue;
+          }
+
+          buyerValues[field.key] = normalized.stringValue as string;
+        }
+      }
+
+      if (buyerErrors.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: buyerErrors.join('; ')
+        });
+      }
+
+      applicationPayload.purchasePrice = buyerValues.purchasePrice as string;
+      applicationPayload.availableCash = buyerValues.availableCash as string;
+      applicationPayload.businessCashFlow = buyerValues.businessCashFlow as string;
+      applicationPayload.industryExperience = buyerValues.industryExperience as string;
+      applicationPayload.creditScore = Number(buyerValues.creditScore)
+      applicationPayload.yearFounded = buyerValues.yearFounded as number;
+    }
+
+    const result = await createApplication(applicationPayload);
     
     res.status(201).json({
       success: true,
@@ -243,12 +410,10 @@ router.post('/name', async (req, res) => {
     }
 
     if (!application && businessPhone) {
-      console.log('Searching application by phone number:', businessPhone);
       application = await getApplicationByPhone(businessPhone);
     }
 
     if (!application) {
-      console.log('No application found for businessName or businessPhone');
       return res.status(404).json({
         success: false,
         error: 'Application not found'
@@ -260,8 +425,6 @@ router.post('/name', async (req, res) => {
         ? (application as any).toObject()
         : application;
     const applicationString = formatApplicationStatus(serializedApplication);
-
-    console.log('Found application:', applicationString);
 
     // Extract toolCallId from request body
     const toolCallId = req.body?.message?.toolCallList?.[0]?.id || 'unknown';
@@ -729,8 +892,6 @@ router.post('/:applicationId/documents/signed', upload.array('documents', 10), a
       buffer: file.buffer
     }));
 
-    console.log(`Uploading ${signedDocumentBuffers.length} signed documents for application ${applicationId}`);
-    // Process signed documents
     const result = await handleSignedDocuments(
       applicationId,
       signedDocumentBuffers,
@@ -1009,21 +1170,64 @@ router.patch('/:applicationId/offers/:offerId', async (req, res) => {
 router.post('/calculate-chances', async (req, res) => {
   try {
     const data = req.body;
+    const toolCallArgs = extractToolCallArguments(req.body);
 
-    // Validate required fields
-    if (!data.purchasePrice || !data.availableCash || !data.businessSDE) {
-      return res.status(400).json({
-        error: 'Missing required fields: purchasePrice, availableCash, businessSDE'
-      });
+    // Check if type field exists to determine buyer vs owner flow
+    const applicationType = toolCallArgs.type as string || 'buyer';
+
+    let chanceResult: LoanChanceResult;
+    let chanceResultVapi: string;
+    console
+    if (applicationType.toLowerCase() === 'buyer') {
+      // Buyer flow - validate buyer fields
+      console.log('Calculating chances for buyer with args:', toolCallArgs);
+      if (!toolCallArgs.purchasePrice || !toolCallArgs.availableCash || !toolCallArgs.businessCashFlow) {
+        return res.status(400).json({
+          error: 'Missing required fields for buyer: purchasePrice, availableCash, businessCashFlow'
+        });
+      }
+
+      chanceResult = calculateSBAEligibilityForBuyer(toolCallArgs as any);
+      chanceResultVapi = calculateSBAEligibilityForBuyerVAPI(toolCallArgs as any);
+    } else {
+      // Owner flow - validate owner fields
+      if (!toolCallArgs.monthlyRevenue || !toolCallArgs.monthlyExpenses || !toolCallArgs.requestedLoanAmount) {
+        return res.status(400).json({
+          error: 'Missing required fields for owner: monthlyRevenue, monthlyExpenses, requestedLoanAmount'
+        });
+      }
+
+      chanceResult = calculateSBAEligibilityForOwner(toolCallArgs as any);
+      chanceResultVapi = calculateSBAEligibilityForOwnerVAPI(toolCallArgs as any);
     }
 
-    const result = calculateSBAEligibility(data);
+    // Broadcast structured result via websocket
+    websocketService.broadcast('calculate-chances', {
+      timestamp: new Date().toISOString(),
+      source: 'calculate-chances',
+      result: chanceResult
+    }, ["global"]);
 
-    res.json(result);
+    websocketService.broadcast('form-reveal', {
+      timestamp: new Date().toISOString(),
+      source: 'backend'
+    }, ["global"]);
+
+    const toolCallId = data.message?.toolCallList?.[0]?.id || 'unknown';
+
+    res.status(200).json({
+      results: [{
+        toolCallId: toolCallId,
+        result: chanceResultVapi
+      }]
+    });
 
   } catch (error) {
     console.error('Error checking SBA eligibility:', error);
-    res.status(500).json({ error: 'Failed to check SBA eligibility' });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check SBA eligibility'
+    });
   }
 });
 

@@ -278,9 +278,23 @@ export interface SBAApplicationData {
   name: string;
   businessName: string;
   businessPhoneNumber: string;
+  isUSCitizen: boolean;
   creditScore: number;
-  annualRevenue: number;
   yearFounded: number;
+  userType: "owner" | "buyer";
+  annualRevenue?: number;
+  monthlyRevenue?: string;
+  monthlyExpenses?: string;
+  existingDebtPayment?: string;
+  requestedLoanAmount?: string;
+  loanPurpose?: string;
+  ownerCreditScore?: string;
+  purchasePrice?: string;
+  availableCash?: string;
+  businessCashFlow?: string;
+  buyerCreditScore?: string;
+  industryExperience?: string;
+  businessYearsRunning?: string | number;
 }
 
 export enum UserProvidedDocumentType {
@@ -375,8 +389,22 @@ export interface ApplicationSubmissionRequest {
   businessName: string;
   businessPhone: string;
   creditScore: number;
-  annualRevenue: number;
   yearFounded: number;
+  annualRevenue?: number;
+  userType?: 'owner' | 'buyer';
+  isUSCitizen?: boolean;
+  monthlyRevenue?: string;
+  monthlyExpenses?: string;
+  existingDebtPayment?: string;
+  requestedLoanAmount?: string;
+  loanPurpose?: string;
+  ownerCreditScore?: string;
+  purchasePrice?: string;
+  availableCash?: string;
+  businessCashFlow?: string;
+  buyerCreditScore?: string;
+  industryExperience?: string;
+  businessYearsRunning?: string | number;
 }
 
 export interface ApplicationResponse {
@@ -533,4 +561,10 @@ export interface BankListResponse {
   total: number;
   page: number;
   pages: number;
+}
+
+export interface LoanChanceResult {
+  score: number;
+  chance: 'low' | 'medium' | 'high';
+  reasons: string[];
 }

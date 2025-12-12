@@ -3,7 +3,7 @@ import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import * as pdfParse from 'pdf-parse';
 import * as mammoth from 'mammoth';
-import { marked } from 'marked';
+
 import { 
   DocumentMetadata, 
   ProcessedDocument, 

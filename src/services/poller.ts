@@ -9,7 +9,6 @@ async function pollEmails() {
     console.log('Polling inbox for new emails...');
 
     const emails = await fetchEmails(); // fetch unread emails from GoDaddy
-    console.log(`Fetched ${emails.length} emails`);
     for (const email of emails) {
       console.log(`Processing email from: ${email.from}, subject: ${email.subject}`);
 

@@ -15,8 +15,16 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
     },
     businessPhoneNumber: {
       type: String,
-      required: true,
-      trim: true
+      trim: true,
+      default: "9999"
+    },
+    yearFounded: {
+      type: Schema.Types.Mixed,
+      required: true
+    },
+    isUSCitizen: {
+      type: Boolean,
+      required: true
     },
     creditScore: {
       type: Number,
@@ -24,15 +32,43 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
       min: 300,
       max: 850
     },
+    userType: {
+      type: String,
+      required: true,
+      enum: ['owner', 'buyer']
+    },
     annualRevenue: {
       type: Number,
-      required: true,
-      min: 0
     },
-    yearFounded: {
-      type: Number,
-      required: true,
-      min: 0
+    monthlyRevenue: {
+      type: String
+    },
+    monthlyExpenses: {
+      type: String
+    },
+    existingDebtPayment: {
+      type: String
+    },
+    requestedLoanAmount: {
+      type: String
+    },
+    loanPurpose: {
+      type: String
+    },
+    ownerCreditScore: {
+      type: String
+    },
+    purchasePrice: {
+      type: String
+    },
+    availableCash: {
+      type: String
+    },
+    businessCashFlow: {
+      type: String
+    },
+    industryExperience: {
+      type: String
     }
   },
   status: {

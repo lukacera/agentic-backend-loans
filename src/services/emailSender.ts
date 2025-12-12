@@ -45,10 +45,6 @@ export async function sendEmail({
     attachments
   };
 
-  console.log('Sending email with the following details:');
-  console.log('- To:', mailOptions.to);
-  console.log('- Subject:', mailOptions.subject);
-  console.log('- Attachments count:', mailOptions.attachments?.length || 0);
   if (mailOptions.attachments && mailOptions.attachments.length > 0) {
     mailOptions.attachments.forEach((att, index) => {
       console.log(`  Attachment ${index + 1}: ${att.filename} (${att.contentType || 'unknown type'})`);
@@ -57,8 +53,6 @@ export async function sendEmail({
 
   try {
     const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent successfully:', info.messageId);
-    console.log('Accepted recipients:', info.accepted);
     if (info.rejected && info.rejected.length > 0) {
       console.warn('Rejected recipients:', info.rejected);
     }
