@@ -692,6 +692,26 @@ app.post('/vapi-ai', (req, res) => {
               };
             }
 
+            case 'captureBusinessSDE': {
+              const { businessSDE } = functionArgs as { businessSDE?: number };
+              saveOrUpdateUserData(message.call?.id, { businessSDE });
+
+              websocketService.broadcast('form-field-update', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fields: { businessSDE },
+                source: 'toolfn-call'
+              }, rooms);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: 'Seller financing percentage captured successfully.'
+                })
+              };
+            }
+
             case 'captureIfSellerFinancingOnStandbyExists': {
               const { sellerFinancingOnStandbyExists } = functionArgs as { sellerFinancingOnStandbyExists?: boolean };
               saveOrUpdateUserData(message.call?.id, { sellerFinancingOnStandbyExists });
