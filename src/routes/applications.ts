@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import {
   createApplication,
+  createDraft,
   getApplicationByBusinessName,
   getApplicationByPhone,
   getApplications,
@@ -19,6 +20,7 @@ import {
 } from '../services/applicationService.js';
 import {
   ApplicationSubmissionRequest,
+  DraftApplicationRequest,
   ApplicationStatus,
   UserProvidedDocumentType,
   LoanChanceResult,
@@ -382,6 +384,113 @@ router.post('/', async (req, res) => {
     
   } catch (error) {
     console.error('Error creating application:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// POST /api/applications/draft - Create new SBA loan application as draft
+router.post('/draft', async (req, res) => {
+  try {
+    const { name, businessName, businessPhone, creditScore, yearFounded, loanChances }: DraftApplicationRequest = req.body;
+
+    // Validate required fields
+    if (!name || !businessName) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: name and businessName are required'
+      });
+    }
+
+    // Validate field types and formats
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Name must be a non-empty string'
+      });
+    }
+
+    if (typeof businessName !== 'string' || businessName.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Business name must be a non-empty string'
+      });
+    }
+
+    // Validate loanChances if provided
+    if (loanChances) {
+      if (typeof loanChances.score !== 'number' || loanChances.score < 0 || loanChances.score > 100) {
+        return res.status(400).json({
+          success: false,
+          error: 'loanChances.score must be a number between 0 and 100'
+        });
+      }
+
+      if (!['low', 'medium', 'high'].includes(loanChances.chance)) {
+        return res.status(400).json({
+          success: false,
+          error: 'loanChances.chance must be one of: low, medium, high'
+        });
+      }
+
+      if (!Array.isArray(loanChances.reasons)) {
+        return res.status(400).json({
+          success: false,
+          error: 'loanChances.reasons must be an array of strings'
+        });
+      }
+    }
+
+    // Create draft application
+    const userType = req.body.type === 'owner' ? 'owner' : 'buyer';
+
+    const applicationPayload: SBAApplicationData = {
+      name: name.trim(),
+      businessName: businessName.trim(),
+      businessPhoneNumber: businessPhone?.trim() || '',
+      creditScore: creditScore || 0,
+      yearFounded: yearFounded || 0,
+      isUSCitizen: req.body.isUSCitizen === true,
+      userType
+    };
+
+    if (typeof req.body.annualRevenue === 'number') {
+      applicationPayload.annualRevenue = req.body.annualRevenue;
+    } else if (req.body.annualRevenue !== undefined && req.body.annualRevenue !== null) {
+      const parsedAnnualRevenue = Number(req.body.annualRevenue);
+      if (!Number.isNaN(parsedAnnualRevenue)) {
+        applicationPayload.annualRevenue = parsedAnnualRevenue;
+      }
+    }
+
+    // Add optional fields for owner type
+    if (userType === 'owner') {
+      if (req.body.monthlyRevenue) applicationPayload.monthlyRevenue = String(req.body.monthlyRevenue);
+      if (req.body.monthlyExpenses) applicationPayload.monthlyExpenses = String(req.body.monthlyExpenses);
+      if (req.body.existingDebtPayment) applicationPayload.existingDebtPayment = String(req.body.existingDebtPayment);
+      if (req.body.requestedLoanAmount) applicationPayload.requestedLoanAmount = String(req.body.requestedLoanAmount);
+      if (req.body.loanPurpose) applicationPayload.loanPurpose = String(req.body.loanPurpose);
+    }
+
+    // Add optional fields for buyer type
+    if (userType === 'buyer') {
+      if (req.body.purchasePrice) applicationPayload.purchasePrice = String(req.body.purchasePrice);
+      if (req.body.availableCash) applicationPayload.availableCash = String(req.body.availableCash);
+      if (req.body.businessCashFlow) applicationPayload.businessCashFlow = String(req.body.businessCashFlow);
+      if (req.body.industryExperience) applicationPayload.industryExperience = String(req.body.industryExperience);
+    }
+
+    const result = await createDraft(applicationPayload, loanChances);
+
+    res.status(201).json({
+      success: true,
+      data: result
+    });
+
+  } catch (error) {
+    console.error('Error creating draft application:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error'

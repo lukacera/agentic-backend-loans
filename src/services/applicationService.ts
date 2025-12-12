@@ -69,13 +69,49 @@ const initializeDirectories = async (): Promise<void> => {
   await fs.ensureDir(GENERATED_DIR);
 };
 
+// Create new SBA application as draft
+export const createDraft = async (
+  applicantData: SBAApplicationData,
+  loanChances?: { score: number; chance: 'low' | 'medium' | 'high'; reasons: string[] }
+): Promise<ApplicationResponse> => {
+  try {
+    await initializeDirectories();
+
+    // Create application in MongoDB with DRAFT status
+    const application = new Application({
+      applicantData,
+      status: ApplicationStatus.DRAFT,
+      documentsGenerated: false,
+      emailSent: false,
+      generatedDocuments: [],
+      ...(loanChances && {
+        loanChances: {
+          ...loanChances,
+          calculatedAt: new Date()
+        }
+      })
+    });
+
+    await application.save();
+
+    return {
+      status: ApplicationStatus.DRAFT,
+      message: 'Application saved as draft successfully.'
+    };
+
+  } catch (error) {
+    console.error('Error creating draft application:', error);
+    throw new Error(`Failed to create draft application: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+};
+
 // Create new SBA application
 export const createApplication = async (
   applicantData: SBAApplicationData
 ): Promise<ApplicationResponse> => {
   try {
     await initializeDirectories();
-    
+
     // Create application in MongoDB
     const application = new Application({
       applicantData,
@@ -84,17 +120,17 @@ export const createApplication = async (
       emailSent: false,
       generatedDocuments: []
     });
-    
+
     await application.save();
-    
+
     // Start async processing
     processApplicationAsync(application);
-    
+
     return {
       status: ApplicationStatus.SUBMITTED,
       message: 'Application submitted successfully. Documents are being prepared and will be sent to the bank shortly.'
     };
-    
+
   } catch (error) {
     console.error('Error creating application:', error);
     throw new Error(`Failed to create application: ${error instanceof Error ? error.message : 'Unknown error'}`);
