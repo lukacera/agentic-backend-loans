@@ -64,7 +64,7 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
     availableCash: {
       type: String
     },
-    businessSDE: {
+    businessCashFlow: {
       type: String
     },
     buyerCreditScore: {

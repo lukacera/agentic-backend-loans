@@ -291,7 +291,7 @@ export interface SBAApplicationData {
   ownerCreditScore?: string;
   purchasePrice?: string;
   availableCash?: string;
-  businessSDE?: string;
+  businessCashFlow?: string;
   buyerCreditScore?: string;
   industryExperience?: string;
   businessYearsRunning?: string | number;
@@ -401,7 +401,7 @@ export interface ApplicationSubmissionRequest {
   ownerCreditScore?: string;
   purchasePrice?: string;
   availableCash?: string;
-  businessSDE?: string;
+  businessCashFlow?: string;
   buyerCreditScore?: string;
   industryExperience?: string;
   businessYearsRunning?: string | number;

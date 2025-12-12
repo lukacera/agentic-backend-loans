@@ -325,7 +325,7 @@ router.post('/', async (req, res) => {
       const buyerFieldConfigs: Array<{ key: string; type: 'numeric' | 'string' }> = [
         { key: 'purchasePrice', type: 'numeric' },
         { key: 'availableCash', type: 'numeric' },
-        { key: 'businessSDE', type: 'numeric' },
+        { key: 'businessCashFlow', type: 'numeric' },
         { key: 'industryExperience', type: 'string' },
         { key: 'buyerCreditScore', type: 'numeric' },
         { key: 'businessYearsRunning', type: 'numeric' }
@@ -372,7 +372,7 @@ router.post('/', async (req, res) => {
 
       applicationPayload.purchasePrice = buyerValues.purchasePrice as string;
       applicationPayload.availableCash = buyerValues.availableCash as string;
-      applicationPayload.businessSDE = buyerValues.businessSDE as string;
+      applicationPayload.businessCashFlow = buyerValues.businessCashFlow as string;
       applicationPayload.industryExperience = buyerValues.industryExperience as string;
       applicationPayload.buyerCreditScore = buyerValues.buyerCreditScore as string;
       applicationPayload.businessYearsRunning = buyerValues.businessYearsRunning as number;
@@ -1184,9 +1184,9 @@ router.post('/calculate-chances', async (req, res) => {
     let chanceResultVapi: string;
     if (applicationType.toLowerCase() === 'buyer') {
       // Buyer flow - validate buyer fields
-      if (!toolCallArgs.purchasePrice || !toolCallArgs.availableCash || !toolCallArgs.businessSDE) {
+      if (!toolCallArgs.purchasePrice || !toolCallArgs.availableCash || !toolCallArgs.businessCashFlow) {
         return res.status(400).json({
-          error: 'Missing required fields for buyer: purchasePrice, availableCash, businessSDE'
+          error: 'Missing required fields for buyer: purchasePrice, availableCash, businessCashFlow'
         });
       }
 

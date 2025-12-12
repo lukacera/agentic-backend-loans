@@ -26,7 +26,7 @@ import { recommendBank } from './bankService.js';
 interface SBAEligibilityRequestBuyer {
   purchasePrice: string;
   availableCash: string;
-  businessSDE: string;
+  businessCashFlow: string;
   buyerCreditScore: string;
   isUSCitizen: boolean;
   businessYearsRunning: string | number;
@@ -947,7 +947,7 @@ function calculateDSCR(loanAmount: number, rate: number, years: number, sde: num
 export function calculateSBAEligibilityForBuyerVAPI(data: SBAEligibilityRequestBuyer): string {
   const purchasePrice = parseInt(data.purchasePrice);
   const availableCash = parseInt(data.availableCash);
-  const businessSDE = parseInt(data.businessSDE || '0');
+  const businessCashFlow = parseInt(data.businessCashFlow || '0');
   const businessYearsRunning = typeof data.businessYearsRunning === 'number'
     ? data.businessYearsRunning
     : parseInt(data.businessYearsRunning as any) || 0;
@@ -960,7 +960,7 @@ export function calculateSBAEligibilityForBuyerVAPI(data: SBAEligibilityRequestB
 
   // Calculate DSCR for a typical 90% SBA loan
   const typicalLoanAmount = purchasePrice * 0.9;
-  const dscr = calculateDSCR(typicalLoanAmount, 0.095, 10, businessSDE);
+  const dscr = calculateDSCR(typicalLoanAmount, 0.095, 10, businessCashFlow);
 
   const reasons: string[] = [];
   const recommendations: string[] = [];
@@ -986,8 +986,8 @@ export function calculateSBAEligibilityForBuyerVAPI(data: SBAEligibilityRequestB
     return 'Ineligible for SBA loan, Business must operate for at least 2 years under current ownership, Recommendation: Reapply once the business reaches 24 months of operating history';
   }
 
-  if (!Number.isFinite(businessSDE) || businessSDE <= 0) {
-    return 'Ineligible for SBA loan, Business must demonstrate positive seller discretionary earnings (SDE), Recommendation: Provide updated financials showing profitable operations';
+  if (!Number.isFinite(businessCashFlow) || businessCashFlow <= 0) {
+    return 'Ineligible for SBA loan, Business must demonstrate positive cash flow, Recommendation: Provide updated financials showing profitable operations';
   }
 
   // 2. Credit Score Check
@@ -1050,11 +1050,11 @@ export function calculateSBAEligibilityForBuyerVAPI(data: SBAEligibilityRequestB
   // 5. Cash Flow / DSCR Check
   let cashFlowCheck = { passed: true, message: '' };
 
-  if (businessSDE <= 0) {
-    cashFlowCheck = { passed: false, message: 'Business cash flow (SDE) not provided' };
+  if (businessCashFlow <= 0) {
+    cashFlowCheck = { passed: false, message: 'Business cash flow not provided' };
     score -= 20;
     reasons.push('Cash flow information required for approval');
-    recommendations.push('Obtain detailed financial statements showing business SDE');
+    recommendations.push('Obtain detailed financial statements showing business cash flow');
   } else if (dscr >= 1.35) {
     cashFlowCheck = { passed: true, message: `Excellent cash flow coverage (DSCR: ${dscr.toFixed(2)}) ✓` };
     reasons.push('Strong debt service coverage ratio');
@@ -1163,7 +1163,7 @@ export function calculateSBAEligibilityForBuyerVAPI(data: SBAEligibilityRequestB
 export function calculateSBAEligibilityForBuyer(data: SBAEligibilityRequestBuyer): LoanChanceResult {
   const purchasePrice = parseInt(data.purchasePrice);
   const availableCash = parseInt(data.availableCash);
-  const businessSDE = parseInt(data.businessSDE || '0');
+  const businessCashFlow = parseInt(data.businessCashFlow || '0');
   const businessYearsRunning = typeof data.businessYearsRunning === 'number'
     ? data.businessYearsRunning
     : parseInt(data.businessYearsRunning as any) || 0;
@@ -1173,7 +1173,7 @@ export function calculateSBAEligibilityForBuyer(data: SBAEligibilityRequestBuyer
 
   const downPaymentPercent = (availableCash / purchasePrice) * 100;
   const typicalLoanAmount = purchasePrice * 0.9;
-  const dscr = calculateDSCR(typicalLoanAmount, 0.095, 10, businessSDE);
+  const dscr = calculateDSCR(typicalLoanAmount, 0.095, 10, businessCashFlow);
 
   const reasons: string[] = [];
   let score = 100;
@@ -1223,13 +1223,13 @@ export function calculateSBAEligibilityForBuyer(data: SBAEligibilityRequestBuyer
     };
   }
 
-  // Positive SDE check (HARD STOP)
-  if (!Number.isFinite(businessSDE) || businessSDE <= 0) {
+  // Positive cash flow check (HARD STOP)
+  if (!Number.isFinite(businessCashFlow) || businessCashFlow <= 0) {
     return {
       score: 0,
       chance: 'low',
       reasons: [
-        'Business must demonstrate positive seller discretionary earnings (SDE)',
+        'Business must demonstrate positive cash flow',
         'Provide updated financial statements showing profitable operations'
       ]
     };
@@ -1269,7 +1269,7 @@ export function calculateSBAEligibilityForBuyer(data: SBAEligibilityRequestBuyer
   }
 
   // Cash Flow / DSCR Check
-  if (businessSDE <= 0) {
+  if (businessCashFlow <= 0) {
     score -= 20;
     reasons.push('Cash flow information required for approval');
   } else if (dscr >= 1.35) {
