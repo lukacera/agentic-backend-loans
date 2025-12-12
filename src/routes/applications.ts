@@ -207,10 +207,10 @@ router.post('/', async (req, res) => {
     const { name, businessName, businessPhone, creditScore, yearFounded }: ApplicationSubmissionRequest = req.body;
     
     // Validate required fields
-    if (!name || !businessName || !businessPhone || !yearFounded) {
+    if (!name || !businessName || !yearFounded) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: name, businessName, businessPhone, and yearFounded are required'
+        error: 'Missing required fields: name, businessName, and yearFounded are required'
       });
     }
     
@@ -226,13 +226,6 @@ router.post('/', async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'Business name must be a non-empty string'
-      });
-    }
-    
-    if (typeof businessPhone !== 'string' || businessPhone.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Business phone number must be a non-empty string'
       });
     }
     
