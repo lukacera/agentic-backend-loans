@@ -264,8 +264,8 @@ router.post('/', async (req, res) => {
         { key: 'existingDebtPayment', type: 'numeric' },
         { key: 'requestedLoanAmount', type: 'numeric' },
         { key: 'loanPurpose', type: 'string' },
-        { key: 'ownerCreditScore', type: 'numeric' },
-        { key: 'businessYearsRunning', type: 'numeric' }
+        { key: 'creditScore', type: 'numeric' },
+        { key: 'yearFounded', type: 'numeric' }
       ];
 
       const ownerErrors: string[] = [];
@@ -282,7 +282,7 @@ router.post('/', async (req, res) => {
             continue;
           }
 
-          if (field.key === 'businessYearsRunning') {
+          if (field.key === 'yearFounded') {
             ownerValues[field.key] = normalized.numberValue ?? Number(normalized.stringValue as string);
           } else {
             ownerValues[field.key] = normalized.stringValue as string;
@@ -312,16 +312,16 @@ router.post('/', async (req, res) => {
       applicationPayload.existingDebtPayment = ownerValues.existingDebtPayment as string;
       applicationPayload.requestedLoanAmount = ownerValues.requestedLoanAmount as string;
       applicationPayload.loanPurpose = ownerValues.loanPurpose as string;
-      applicationPayload.ownerCreditScore = ownerValues.ownerCreditScore as string;
-      applicationPayload.businessYearsRunning = ownerValues.businessYearsRunning as number;
+      applicationPayload.creditScore = Number(ownerValues.creditScore)
+      applicationPayload.yearFounded = ownerValues.yearFounded as number;
     } else {
       const buyerFieldConfigs: Array<{ key: string; type: 'numeric' | 'string' }> = [
         { key: 'purchasePrice', type: 'numeric' },
         { key: 'availableCash', type: 'numeric' },
         { key: 'businessCashFlow', type: 'numeric' },
         { key: 'industryExperience', type: 'string' },
-        { key: 'buyerCreditScore', type: 'numeric' },
-        { key: 'businessYearsRunning', type: 'numeric' }
+        { key: 'creditScore', type: 'numeric' },
+        { key: 'yearFounded', type: 'numeric' }
       ];
 
       const buyerErrors: string[] = [];
@@ -338,7 +338,7 @@ router.post('/', async (req, res) => {
             continue;
           }
 
-          if (field.key === 'businessYearsRunning') {
+          if (field.key === 'yearFounded') {
             buyerValues[field.key] = normalized.numberValue ?? Number(normalized.stringValue as string);
           } else {
             buyerValues[field.key] = normalized.stringValue as string;
@@ -367,8 +367,8 @@ router.post('/', async (req, res) => {
       applicationPayload.availableCash = buyerValues.availableCash as string;
       applicationPayload.businessCashFlow = buyerValues.businessCashFlow as string;
       applicationPayload.industryExperience = buyerValues.industryExperience as string;
-      applicationPayload.buyerCreditScore = buyerValues.buyerCreditScore as string;
-      applicationPayload.businessYearsRunning = buyerValues.businessYearsRunning as number;
+      applicationPayload.creditScore = Number(buyerValues.creditScore)
+      applicationPayload.yearFounded = buyerValues.yearFounded as number;
     }
 
     const result = await createApplication(applicationPayload);
@@ -1177,6 +1177,7 @@ router.post('/calculate-chances', async (req, res) => {
     let chanceResultVapi: string;
     if (applicationType.toLowerCase() === 'buyer') {
       // Buyer flow - validate buyer fields
+      console.log('Calculating chances for buyer with args:', toolCallArgs);
       if (!toolCallArgs.purchasePrice || !toolCallArgs.availableCash || !toolCallArgs.businessCashFlow) {
         return res.status(400).json({
           error: 'Missing required fields for buyer: purchasePrice, availableCash, businessCashFlow'

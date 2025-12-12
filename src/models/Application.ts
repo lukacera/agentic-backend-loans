@@ -15,8 +15,8 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
     },
     businessPhoneNumber: {
       type: String,
-      required: true,
-      trim: true
+      trim: true,
+      default: "9999"
     },
     yearFounded: {
       type: Schema.Types.Mixed,
@@ -69,9 +69,6 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
     },
     industryExperience: {
       type: String
-    },
-    businessYearsRunning: {
-      type: Schema.Types.Mixed
     }
   },
   status: {
