@@ -76,7 +76,7 @@ export const createDraft = async (
 ): Promise<ApplicationResponse> => {
   try {
     await initializeDirectories();
-
+    console.log(loanChances);
     // Create application in MongoDB with DRAFT status
     const application = new Application({
       applicantData,
@@ -990,6 +990,7 @@ export function calculateSBAEligibilityForBuyerVAPI(data: SBAEligibilityRequestB
 
   // Parse credit score as a plain number string
   const creditScoreValue = parseInt(data.buyerCreditScore || '0');
+  console.log(data)
   const isCitizen = data.isUSCitizen;
 
   const downPaymentPercent = (availableCash / purchasePrice) * 100;

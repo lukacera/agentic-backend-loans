@@ -394,68 +394,26 @@ router.post('/', async (req, res) => {
 // POST /api/applications/draft - Create new SBA loan application as draft
 router.post('/draft', async (req, res) => {
   try {
-    const { name, businessName, businessPhone, creditScore, yearFounded, loanChances }: DraftApplicationRequest = req.body;
-
-    // Validate required fields
-    if (!name || !businessName) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields: name and businessName are required'
-      });
-    }
-
-    // Validate field types and formats
-    if (typeof name !== 'string' || name.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Name must be a non-empty string'
-      });
-    }
-
-    if (typeof businessName !== 'string' || businessName.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Business name must be a non-empty string'
-      });
-    }
-
-    // Validate loanChances if provided
-    if (loanChances) {
-      if (typeof loanChances.score !== 'number' || loanChances.score < 0 || loanChances.score > 100) {
-        return res.status(400).json({
-          success: false,
-          error: 'loanChances.score must be a number between 0 and 100'
-        });
-      }
-
-      if (!['low', 'medium', 'high'].includes(loanChances.chance)) {
-        return res.status(400).json({
-          success: false,
-          error: 'loanChances.chance must be one of: low, medium, high'
-        });
-      }
-
-      if (!Array.isArray(loanChances.reasons)) {
-        return res.status(400).json({
-          success: false,
-          error: 'loanChances.reasons must be an array of strings'
-        });
-      }
-    }
+    const { businessPhone, creditScore, yearFounded, name }: DraftApplicationRequest = req.body;
 
     // Create draft application
     const userType = req.body.type === 'owner' ? 'owner' : 'buyer';
+    let chanceResult: LoanChanceResult = {
+      score: 0,
+      chance: 'low',
+      reasons: []
+    }
 
     const applicationPayload: SBAApplicationData = {
-      name: name.trim(),
-      businessName: businessName.trim(),
+      name: typeof name === 'string' && name.trim().length > 0 ? name.trim() : "Undisclosed",
+      businessName: "Undisclosed",
       businessPhoneNumber: businessPhone?.trim() || '',
       creditScore: creditScore || 0,
       yearFounded: yearFounded || 0,
       isUSCitizen: req.body.isUSCitizen === true,
       userType
     };
-
+    console.log(applicationPayload)
     if (typeof req.body.annualRevenue === 'number') {
       applicationPayload.annualRevenue = req.body.annualRevenue;
     } else if (req.body.annualRevenue !== undefined && req.body.annualRevenue !== null) {
@@ -472,6 +430,13 @@ router.post('/draft', async (req, res) => {
       if (req.body.existingDebtPayment) applicationPayload.existingDebtPayment = String(req.body.existingDebtPayment);
       if (req.body.requestedLoanAmount) applicationPayload.requestedLoanAmount = String(req.body.requestedLoanAmount);
       if (req.body.loanPurpose) applicationPayload.loanPurpose = String(req.body.loanPurpose);
+      if (!req.body.monthlyRevenue || !req.body.monthlyExpenses || !req.body.requestedLoanAmount) {
+        return res.status(400).json({
+          error: 'Missing required fields for owner: monthlyRevenue, monthlyExpenses, requestedLoanAmount'
+        });
+      }
+
+      chanceResult = calculateSBAEligibilityForOwner(req.body as any);
     }
 
     // Add optional fields for buyer type
@@ -480,9 +445,17 @@ router.post('/draft', async (req, res) => {
       if (req.body.availableCash) applicationPayload.availableCash = String(req.body.availableCash);
       if (req.body.businessCashFlow) applicationPayload.businessCashFlow = String(req.body.businessCashFlow);
       if (req.body.industryExperience) applicationPayload.industryExperience = String(req.body.industryExperience);
+      if (!req.body.purchasePrice || !req.body.availableCash || !req.body.businessCashFlow) {
+        console.log(req.body)
+        return res.status(400).json({
+          error: 'Missing required fields for buyer: purchasePrice, availableCash, businessCashFlow'
+        });
+      }
+
+      chanceResult = calculateSBAEligibilityForBuyer(req.body as any);
     }
 
-    const result = await createDraft(applicationPayload, loanChances);
+    const result = await createDraft(applicationPayload, chanceResult);
 
     res.status(201).json({
       success: true,
@@ -1280,7 +1253,7 @@ router.post('/calculate-chances', async (req, res) => {
   try {
     const data = req.body;
     const toolCallArgs = extractToolCallArguments(req.body);
-
+    console.log('Tool call args:', toolCallArgs);
     // Check if type field exists to determine buyer vs owner flow
     const applicationType = toolCallArgs.type as string || 'buyer';
 
