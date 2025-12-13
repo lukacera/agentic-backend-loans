@@ -78,6 +78,24 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
     required: true
   },
 
+  // Loan Chances
+  loanChances: {
+    score: {
+      type: Number
+    },
+    chance: {
+      type: String,
+      enum: ['low', 'medium', 'high']
+    },
+    reasons: [{
+      type: String
+    }],
+    calculatedAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
+
   // Bank Submissions
   banks: [{
     bank: {

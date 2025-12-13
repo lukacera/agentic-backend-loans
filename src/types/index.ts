@@ -333,6 +333,9 @@ export interface SBAApplication extends Document {
   documentsGenerated: boolean;
   generatedDocuments: string[];
 
+  // Loan Chances
+  loanChances?: StoredLoanChances;
+
   // Bank Submissions
   banks: BankSubmission[];
   offers: [{
@@ -372,6 +375,7 @@ export interface SBAApplication extends Document {
 }
 
 export enum ApplicationStatus {
+  DRAFT = 'draft',
   SUBMITTED = 'submitted',
   PROCESSING = 'processing',
   DOCUMENTS_GENERATED = 'documents_generated',
@@ -405,6 +409,34 @@ export interface ApplicationSubmissionRequest {
   buyerCreditScore?: string;
   industryExperience?: string;
   businessYearsRunning?: string | number;
+}
+
+export interface DraftApplicationRequest {
+  name: string;
+  businessName: string;
+  businessPhone?: string;
+  creditScore?: number;
+  yearFounded?: number;
+  annualRevenue?: number;
+  userType?: 'owner' | 'buyer';
+  isUSCitizen?: boolean;
+  monthlyRevenue?: string;
+  monthlyExpenses?: string;
+  existingDebtPayment?: string;
+  requestedLoanAmount?: string;
+  loanPurpose?: string;
+  ownerCreditScore?: string;
+  purchasePrice?: string;
+  availableCash?: string;
+  businessCashFlow?: string;
+  buyerCreditScore?: string;
+  industryExperience?: string;
+  businessYearsRunning?: string | number;
+  loanChances?: {
+    score: number;
+    chance: 'low' | 'medium' | 'high';
+    reasons: string[];
+  };
 }
 
 export interface ApplicationResponse {
@@ -567,4 +599,11 @@ export interface LoanChanceResult {
   score: number;
   chance: 'low' | 'medium' | 'high';
   reasons: string[];
+}
+
+export interface StoredLoanChances {
+  score: number;
+  chance: 'low' | 'medium' | 'high';
+  reasons: string[];
+  calculatedAt?: Date;
 }

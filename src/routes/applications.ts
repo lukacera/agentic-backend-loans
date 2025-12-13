@@ -2,6 +2,8 @@ import express from 'express';
 import multer from 'multer';
 import {
   createApplication,
+  createDraft,
+  convertDraftToApplication,
   getApplicationByBusinessName,
   getApplicationByPhone,
   getApplications,
@@ -19,6 +21,7 @@ import {
 } from '../services/applicationService.js';
 import {
   ApplicationSubmissionRequest,
+  DraftApplicationRequest,
   ApplicationStatus,
   UserProvidedDocumentType,
   LoanChanceResult,
@@ -385,6 +388,299 @@ router.post('/', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// POST /api/applications/draft - Create new SBA loan application as draft
+router.post('/draft', async (req, res) => {
+  try {
+    const { businessPhone, creditScore, yearFounded, name }: DraftApplicationRequest = req.body;
+
+    // Create draft application
+    const userType = req.body.type === 'owner' ? 'owner' : 'buyer';
+    let chanceResult: LoanChanceResult = {
+      score: 0,
+      chance: 'low',
+      reasons: []
+    }
+
+    const applicationPayload: SBAApplicationData = {
+      name: typeof name === 'string' && name.trim().length > 0 ? name.trim() : "Undisclosed",
+      businessName: "Undisclosed",
+      businessPhoneNumber: businessPhone?.trim() || '',
+      creditScore: creditScore || 0,
+      yearFounded: yearFounded || 0,
+      isUSCitizen: req.body.isUSCitizen === true,
+      userType
+    };
+    console.log(applicationPayload)
+    if (typeof req.body.annualRevenue === 'number') {
+      applicationPayload.annualRevenue = req.body.annualRevenue;
+    } else if (req.body.annualRevenue !== undefined && req.body.annualRevenue !== null) {
+      const parsedAnnualRevenue = Number(req.body.annualRevenue);
+      if (!Number.isNaN(parsedAnnualRevenue)) {
+        applicationPayload.annualRevenue = parsedAnnualRevenue;
+      }
+    }
+
+    // Add optional fields for owner type
+    if (userType === 'owner') {
+      if (req.body.monthlyRevenue) applicationPayload.monthlyRevenue = String(req.body.monthlyRevenue);
+      if (req.body.monthlyExpenses) applicationPayload.monthlyExpenses = String(req.body.monthlyExpenses);
+      if (req.body.existingDebtPayment) applicationPayload.existingDebtPayment = String(req.body.existingDebtPayment);
+      if (req.body.requestedLoanAmount) applicationPayload.requestedLoanAmount = String(req.body.requestedLoanAmount);
+      if (req.body.loanPurpose) applicationPayload.loanPurpose = String(req.body.loanPurpose);
+      if (!req.body.monthlyRevenue || !req.body.monthlyExpenses || !req.body.requestedLoanAmount) {
+        return res.status(400).json({
+          error: 'Missing required fields for owner: monthlyRevenue, monthlyExpenses, requestedLoanAmount'
+        });
+      }
+
+      chanceResult = calculateSBAEligibilityForOwner(req.body as any);
+    }
+
+    // Add optional fields for buyer type
+    if (userType === 'buyer') {
+      if (req.body.purchasePrice) applicationPayload.purchasePrice = String(req.body.purchasePrice);
+      if (req.body.availableCash) applicationPayload.availableCash = String(req.body.availableCash);
+      if (req.body.businessCashFlow) applicationPayload.businessCashFlow = String(req.body.businessCashFlow);
+      if (req.body.industryExperience) applicationPayload.industryExperience = String(req.body.industryExperience);
+      if (!req.body.purchasePrice || !req.body.availableCash || !req.body.businessCashFlow) {
+        console.log(req.body)
+        return res.status(400).json({
+          error: 'Missing required fields for buyer: purchasePrice, availableCash, businessCashFlow'
+        });
+      }
+
+      chanceResult = calculateSBAEligibilityForBuyer(req.body as any);
+    }
+
+    const result = await createDraft(applicationPayload, chanceResult);
+
+    res.status(201).json({
+      success: true,
+      data: result
+    });
+
+  } catch (error) {
+    console.error('Error creating draft application:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// PATCH /api/applications/:applicationId/convert - Convert draft to normal application
+router.patch('/:applicationId/convert', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const { name, businessName, businessPhone, creditScore, yearFounded }: ApplicationSubmissionRequest = req.body;
+
+    // Validate required fields for conversion
+    if (!name || !businessName || !yearFounded) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: name, businessName, and yearFounded are required'
+      });
+    }
+
+    // Validate field types and formats
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Name must be a non-empty string'
+      });
+    }
+
+    if (typeof businessName !== 'string' || businessName.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Business name must be a non-empty string'
+      });
+    }
+
+    if (yearFounded < 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Years in business must be a positive number'
+      });
+    }
+
+    // Get the draft application to determine user type
+    const draftApplication = await Application.findById(applicationId);
+
+    if (!draftApplication) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found'
+      });
+    }
+
+    if (draftApplication.status !== ApplicationStatus.DRAFT) {
+      return res.status(400).json({
+        success: false,
+        error: `Application is not in draft status. Current status: ${draftApplication.status}`
+      });
+    }
+
+    // Use the user type from the draft application (not from request body)
+    const userType = draftApplication.applicantData.userType;
+
+    const updatedData: Partial<SBAApplicationData> = {
+      name: name.trim(),
+      businessName: businessName.trim(),
+      businessPhoneNumber: businessPhone?.trim() || '',
+      creditScore,
+      yearFounded,
+      isUSCitizen: req.body.isUSCitizen === true
+      // userType is NOT included here - it will be preserved from the draft
+    };
+
+    if (typeof req.body.annualRevenue === 'number') {
+      updatedData.annualRevenue = req.body.annualRevenue;
+    } else if (req.body.annualRevenue !== undefined && req.body.annualRevenue !== null) {
+      const parsedAnnualRevenue = Number(req.body.annualRevenue);
+      if (!Number.isNaN(parsedAnnualRevenue)) {
+        updatedData.annualRevenue = parsedAnnualRevenue;
+      }
+    }
+
+    // Validate and add type-specific fields
+    if (userType === 'owner') {
+      const ownerFieldConfigs: Array<{ key: string; type: 'numeric' | 'string' }> = [
+        { key: 'monthlyRevenue', type: 'numeric' },
+        { key: 'monthlyExpenses', type: 'numeric' },
+        { key: 'existingDebtPayment', type: 'numeric' },
+        { key: 'requestedLoanAmount', type: 'numeric' },
+        { key: 'loanPurpose', type: 'string' },
+        { key: 'creditScore', type: 'numeric' },
+        { key: 'yearFounded', type: 'numeric' }
+      ];
+
+      const ownerErrors: string[] = [];
+      const ownerValues: Record<string, string | number> = {};
+
+      for (const field of ownerFieldConfigs) {
+        const rawValue = req.body[field.key];
+
+        if (field.type === 'numeric') {
+          const normalized = normalizeNumericInput(rawValue);
+
+          if (!normalized.valid) {
+            ownerErrors.push(`Field ${field.key} is required and must be a valid number for owner applications`);
+            continue;
+          }
+
+          if (field.key === 'yearFounded') {
+            ownerValues[field.key] = normalized.numberValue ?? Number(normalized.stringValue as string);
+          } else {
+            ownerValues[field.key] = normalized.stringValue as string;
+          }
+
+        } else {
+          const normalized = normalizeNonEmptyString(rawValue);
+
+          if (!normalized.valid) {
+            ownerErrors.push(`Field ${field.key} is required for owner applications`);
+            continue;
+          }
+
+          ownerValues[field.key] = normalized.stringValue as string;
+        }
+      }
+
+      if (ownerErrors.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: ownerErrors.join('; ')
+        });
+      }
+
+      updatedData.monthlyRevenue = ownerValues.monthlyRevenue as string;
+      updatedData.monthlyExpenses = ownerValues.monthlyExpenses as string;
+      updatedData.existingDebtPayment = ownerValues.existingDebtPayment as string;
+      updatedData.requestedLoanAmount = ownerValues.requestedLoanAmount as string;
+      updatedData.loanPurpose = ownerValues.loanPurpose as string;
+      updatedData.creditScore = Number(ownerValues.creditScore);
+      updatedData.yearFounded = ownerValues.yearFounded as number;
+    } else {
+      const buyerFieldConfigs: Array<{ key: string; type: 'numeric' | 'string' }> = [
+        { key: 'purchasePrice', type: 'numeric' },
+        { key: 'availableCash', type: 'numeric' },
+        { key: 'businessCashFlow', type: 'numeric' },
+        { key: 'industryExperience', type: 'string' },
+        { key: 'creditScore', type: 'numeric' },
+        { key: 'yearFounded', type: 'numeric' }
+      ];
+
+      const buyerErrors: string[] = [];
+      const buyerValues: Record<string, string | number> = {};
+
+      for (const field of buyerFieldConfigs) {
+        const rawValue = req.body[field.key];
+
+        if (field.type === 'numeric') {
+          const normalized = normalizeNumericInput(rawValue);
+
+          if (!normalized.valid) {
+            buyerErrors.push(`Field ${field.key} is required and must be a valid number for buyer applications`);
+            continue;
+          }
+
+          if (field.key === 'yearFounded') {
+            buyerValues[field.key] = normalized.numberValue ?? Number(normalized.stringValue as string);
+          } else {
+            buyerValues[field.key] = normalized.stringValue as string;
+          }
+
+        } else {
+          const normalized = normalizeNonEmptyString(rawValue);
+
+          if (!normalized.valid) {
+            buyerErrors.push(`Field ${field.key} is required for buyer applications`);
+            continue;
+          }
+
+          buyerValues[field.key] = normalized.stringValue as string;
+        }
+      }
+
+      if (buyerErrors.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: buyerErrors.join('; ')
+        });
+      }
+
+      updatedData.purchasePrice = buyerValues.purchasePrice as string;
+      updatedData.availableCash = buyerValues.availableCash as string;
+      updatedData.businessCashFlow = buyerValues.businessCashFlow as string;
+      updatedData.industryExperience = buyerValues.industryExperience as string;
+      updatedData.creditScore = Number(buyerValues.creditScore);
+      updatedData.yearFounded = buyerValues.yearFounded as number;
+    }
+
+    const { response, userType: preservedUserType } = await convertDraftToApplication(applicationId, updatedData);
+
+    res.status(200).json({
+      success: true,
+      data: response
+    });
+
+  } catch (error) {
+    console.error('Error converting draft application:', error);
+
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    const statusCode =
+      message === 'Application not found' ? 404 :
+      message.includes('not in draft status') ? 400 :
+      500;
+
+    res.status(statusCode).json({
+      success: false,
+      error: message
     });
   }
 });
@@ -1171,7 +1467,7 @@ router.post('/calculate-chances', async (req, res) => {
   try {
     const data = req.body;
     const toolCallArgs = extractToolCallArguments(req.body);
-
+    console.log('Tool call args:', toolCallArgs);
     // Check if type field exists to determine buyer vs owner flow
     const applicationType = toolCallArgs.type as string || 'buyer';
 
