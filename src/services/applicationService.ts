@@ -105,6 +105,56 @@ export const createDraft = async (
   }
 };
 
+// Convert draft application to normal application and start processing
+export const convertDraftToApplication = async (
+  applicationId: string,
+  updatedData: Partial<SBAApplicationData>
+): Promise<{ response: ApplicationResponse; userType: 'owner' | 'buyer' }> => {
+  try {
+    await initializeDirectories();
+
+    // Find the draft application
+    const application = await Application.findById(applicationId);
+
+    if (!application) {
+      throw new Error('Application not found');
+    }
+
+    if (application.status !== ApplicationStatus.DRAFT) {
+      throw new Error(`Application is not in draft status. Current status: ${application.status}`);
+    }
+
+    // Preserve the original user type from the draft
+    const originalUserType = application.applicantData.userType;
+
+    // Merge updated data with existing applicant data, but preserve userType
+    application.applicantData = {
+      ...application.applicantData,
+      ...updatedData,
+      userType: originalUserType // Explicitly preserve the original userType
+    };
+
+    // Update status to submitted
+    application.status = ApplicationStatus.SUBMITTED;
+    await application.save();
+
+    // Start async processing
+    processApplicationAsync(application);
+
+    return {
+      response: {
+        status: ApplicationStatus.SUBMITTED,
+        message: 'Draft application converted and submitted successfully. Documents are being prepared and will be sent to the bank shortly.'
+      },
+      userType: originalUserType
+    };
+
+  } catch (error) {
+    console.error('Error converting draft application:', error);
+    throw new Error(`Failed to convert draft application: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+};
+
 // Create new SBA application
 export const createApplication = async (
   applicantData: SBAApplicationData
