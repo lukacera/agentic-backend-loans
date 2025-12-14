@@ -29,7 +29,7 @@ import {
   SBAApplicationData
 } from '../types/index.js';
 import { Application } from '../models/Application.js';
-import { generatePresignedUrl } from '../services/s3Service.js';
+import { generatePresignedUrl, uploadDocumentWithRetry } from '../services/s3Service.js';
 import { formatApplicationStatus } from '../utils/formatters.js';
 import websocketService from '../services/websocket.js';
 
@@ -477,11 +477,11 @@ router.post('/draft', async (req, res) => {
   }
 });
 
-// PATCH /api/applications/:applicationId/draft - Update draft application and regenerate PDFs
-router.patch('/:applicationId/draft', async (req, res) => {
+// PATCH /api/applications/:applicationId/draft - Update draft application with edited PDFs from frontend
+router.patch('/:applicationId/draft', upload.array('pdfs', 2), async (req, res) => {
   try {
     const { applicationId } = req.params;
-    const updatedData: Partial<SBAApplicationData> = req.body;
+    const files = req.files as Express.Multer.File[];
 
     // Find the draft application
     const application = await Application.findById(applicationId);
@@ -500,46 +500,86 @@ router.patch('/:applicationId/draft', async (req, res) => {
       });
     }
 
-    // Merge updated data with existing applicant data
-    application.applicantData = {
-      ...application.applicantData,
-      ...updatedData
-    };
+    // Optional: Update form data if provided in request body
+    if (req.body.formData) {
+      try {
+        const updatedData = typeof req.body.formData === 'string' 
+          ? JSON.parse(req.body.formData) 
+          : req.body.formData;
+        
+        application.applicantData = {
+          ...application.applicantData,
+          ...updatedData
+        };
+        await application.save();
+      } catch (parseError) {
+        console.error('Error parsing formData:', parseError);
+      }
+    }
 
-    await application.save();
+    // If PDFs are provided, upload them to S3
+    if (files && files.length > 0) {
+      const uploadedPDFs = [];
+      console.log(files)
+      for (const file of files) {
+        const s3Key = `drafts/${applicationId}/${file.originalname}`;
+        
+        const s3Result = await uploadDocumentWithRetry(
+          applicationId,
+          file.originalname,
+          file.buffer,
+          s3Key
+        );
 
-    // Regenerate draft PDFs with updated data
-    const draftPDFs = await generateDraftPDFs(application.applicantData, applicationId);
+        uploadedPDFs.push({
+          fileName: file.originalname,
+          s3Key: s3Result.key,
+          s3Url: s3Result.url,
+          generatedAt: new Date()
+        });
+      }
 
-    // Update draft application with new PDF info (complete replacement, Mongoose detects this automatically)
-    application.draftDocuments = draftPDFs as any;
-    await application.save();
+      // Replace draft documents (complete replacement)
+      application.draftDocuments = uploadedPDFs as any;
+      await application.save();
 
-    // Broadcast updated PDFs via WebSocket
-    websocketService.broadcast('draft-updated', {
-      draftApplicationId: applicationId,
-      pdfUrls: draftPDFs.map(pdf => ({
-        fileName: pdf.fileName,
-        url: pdf.s3Url,
-        generatedAt: pdf.generatedAt
-      })),
-      timestamp: new Date().toISOString(),
-      source: 'draft-update'
-    }, ["global"]);
-
-    res.status(200).json({
-      success: true,
-      data: {
-        applicationId,
-        status: application.status,
-        applicantData: application.applicantData,
-        draftDocuments: draftPDFs.map(pdf => ({
+      // Broadcast updated PDFs via WebSocket
+      websocketService.broadcast('draft-updated', {
+        draftApplicationId: applicationId,
+        pdfUrls: uploadedPDFs.map(pdf => ({
           fileName: pdf.fileName,
           url: pdf.s3Url,
           generatedAt: pdf.generatedAt
-        }))
-      }
-    });
+        })),
+        timestamp: new Date().toISOString(),
+        source: 'draft-update'
+      }, ["global"]);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          applicationId,
+          status: application.status,
+          applicantData: application.applicantData,
+          draftDocuments: uploadedPDFs.map(pdf => ({
+            fileName: pdf.fileName,
+            url: pdf.s3Url,
+            generatedAt: pdf.generatedAt
+          }))
+        }
+      });
+    } else {
+      // No PDFs provided, just return current state
+      res.status(200).json({
+        success: true,
+        data: {
+          applicationId,
+          status: application.status,
+          applicantData: application.applicantData,
+          draftDocuments: application.draftDocuments
+        }
+      });
+    }
 
   } catch (error) {
     console.error('Error updating draft application:', error);
