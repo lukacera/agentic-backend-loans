@@ -17,7 +17,8 @@ import {
   calculateSBAEligibilityForBuyer,
   calculateSBAEligibilityForOwner,
   calculateSBAEligibilityForBuyerVAPI,
-  calculateSBAEligibilityForOwnerVAPI
+  calculateSBAEligibilityForOwnerVAPI,
+  generateDraftPDFs
 } from '../services/applicationService.js';
 import {
   ApplicationSubmissionRequest,
@@ -456,11 +457,15 @@ router.post('/draft', async (req, res) => {
       chanceResult = calculateSBAEligibilityForBuyer(req.body as any);
     }
 
-    const result = await createDraft(applicationPayload, chanceResult);
+    const draftApplication = await createDraft(applicationPayload, chanceResult);
 
     res.status(201).json({
       success: true,
-      data: result
+      data: {
+        status: ApplicationStatus.DRAFT,
+        message: 'Application saved as draft successfully.',
+        applicationId: draftApplication._id
+      }
     });
 
   } catch (error) {
@@ -468,6 +473,83 @@ router.post('/draft', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// PATCH /api/applications/:applicationId/draft - Update draft application and regenerate PDFs
+router.patch('/:applicationId/draft', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const updatedData: Partial<SBAApplicationData> = req.body;
+
+    // Find the draft application
+    const application = await Application.findById(applicationId);
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found'
+      });
+    }
+
+    if (application.status !== ApplicationStatus.DRAFT) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot update application. Current status: ${application.status}. Only DRAFT applications can be updated.`
+      });
+    }
+
+    // Merge updated data with existing applicant data
+    application.applicantData = {
+      ...application.applicantData,
+      ...updatedData
+    };
+
+    await application.save();
+
+    // Regenerate draft PDFs with updated data
+    const draftPDFs = await generateDraftPDFs(application.applicantData, applicationId);
+
+    // Update draft application with new PDF info (complete replacement, Mongoose detects this automatically)
+    application.draftDocuments = draftPDFs as any;
+    await application.save();
+
+    // Broadcast updated PDFs via WebSocket
+    websocketService.broadcast('draft-updated', {
+      draftApplicationId: applicationId,
+      pdfUrls: draftPDFs.map(pdf => ({
+        fileName: pdf.fileName,
+        url: pdf.s3Url,
+        generatedAt: pdf.generatedAt
+      })),
+      timestamp: new Date().toISOString(),
+      source: 'draft-update'
+    }, ["global"]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        applicationId,
+        status: application.status,
+        applicantData: application.applicantData,
+        draftDocuments: draftPDFs.map(pdf => ({
+          fileName: pdf.fileName,
+          url: pdf.s3Url,
+          generatedAt: pdf.generatedAt
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Error updating draft application:', error);
+
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    const statusCode = message === 'Application not found' ? 404 : 500;
+
+    res.status(statusCode).json({
+      success: false,
+      error: message
     });
   }
 });
@@ -1000,6 +1082,59 @@ router.get('/:applicationId/documents/user-provided', async (req, res) => {
   }
 });
 
+// GET /api/applications/:applicationId/documents/draft - Get draft document URLs
+router.get('/:applicationId/documents/draft', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const expiresIn = parseInt(req.query.expiresIn as string) || 3600;
+
+    const application = await Application.findById(applicationId);
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found'
+      });
+    }
+
+    if (!application.draftDocuments || application.draftDocuments.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No draft documents available',
+        status: application.status
+      });
+    }
+
+    // Generate fresh presigned URLs
+    const documentsWithUrls = await Promise.all(
+      application.draftDocuments.map(async (doc: any) => {
+        const presignedUrl = await generatePresignedUrl(doc.s3Key, expiresIn);
+        return {
+          fileName: doc.fileName,
+          url: presignedUrl,
+          generatedAt: doc.generatedAt,
+          expiresIn
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      data: {
+        applicationId,
+        status: application.status,
+        documents: documentsWithUrls
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching draft documents:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
 router.post('/:applicationId/documents/user-provided', upload.array('documents', 10), async (req, res) => {
   try {
     const { applicationId } = req.params;
@@ -1473,7 +1608,7 @@ router.post('/calculate-chances', async (req, res) => {
 
     let chanceResult: LoanChanceResult;
     let chanceResultVapi: string;
-    console
+    
     if (applicationType.toLowerCase() === 'buyer') {
       // Buyer flow - validate buyer fields
       console.log('Calculating chances for buyer with args:', toolCallArgs);
@@ -1497,14 +1632,64 @@ router.post('/calculate-chances', async (req, res) => {
       chanceResultVapi = calculateSBAEligibilityForOwnerVAPI(toolCallArgs as any);
     }
 
-    // Broadcast structured result via websocket
+    // ===== NEW: Create draft application and generate PDFs =====
+    
+    // Build applicant data from toolCallArgs
+    const applicantData: Partial<SBAApplicationData> = {
+      name: toolCallArgs.name || "Undisclosed",
+      businessName: toolCallArgs.businessName || "Undisclosed",
+      businessPhoneNumber: toolCallArgs.businessPhone || toolCallArgs.businessPhoneNumber || "",
+      userType: applicationType === 'buyer' ? 'buyer' : 'owner',
+      creditScore: Number(toolCallArgs.creditScore || toolCallArgs.buyerCreditScore || toolCallArgs.ownerCreditScore || 0),
+      yearFounded: Number(toolCallArgs.yearFounded || 0),
+      isUSCitizen: toolCallArgs.isUSCitizen === true,
+      // Add type-specific fields
+      ...(applicationType === 'buyer' ? {
+        purchasePrice: toolCallArgs.purchasePrice,
+        availableCash: toolCallArgs.availableCash,
+        businessCashFlow: toolCallArgs.businessCashFlow,
+        industryExperience: toolCallArgs.industryExperience
+      } : {
+        monthlyRevenue: toolCallArgs.monthlyRevenue,
+        monthlyExpenses: toolCallArgs.monthlyExpenses,
+        existingDebtPayment: toolCallArgs.existingDebtPayment,
+        requestedLoanAmount: toolCallArgs.requestedLoanAmount,
+        loanPurpose: toolCallArgs.loanPurpose
+      })
+    };
+
+    // Create draft application
+    const draftApp = await createDraft(applicantData as SBAApplicationData, chanceResult);
+    const draftApplicationId = draftApp._id?.toString();
+
+    if (!draftApplicationId) {
+      throw new Error('Failed to create draft application');
+    }
+
+    // Generate draft PDFs
+    const draftPDFs = await generateDraftPDFs(applicantData, draftApplicationId);
+
+    // Update draft application with PDF info
+    await Application.findByIdAndUpdate(draftApplicationId, {
+      draftDocuments: draftPDFs
+    });
+
+    // Broadcast calculate-chances result (existing)
     websocketService.broadcast('calculate-chances', {
       timestamp: new Date().toISOString(),
       source: 'calculate-chances',
       result: chanceResult
     }, ["global"]);
 
+    // ===== NEW: Broadcast form-reveal with PDF URLs =====
     websocketService.broadcast('form-reveal', {
+      draftApplicationId,
+      pdfUrls: draftPDFs.map(pdf => ({
+        fileName: pdf.fileName,
+        url: pdf.s3Url,
+        generatedAt: pdf.generatedAt
+      })),
+      callId: data.message?.call?.id,
       timestamp: new Date().toISOString(),
       source: 'backend'
     }, ["global"]);

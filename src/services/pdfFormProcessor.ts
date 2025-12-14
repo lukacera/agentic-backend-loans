@@ -120,7 +120,6 @@ export const fillPDFForm = async (
     const availableFieldNames = formFields.map(f => f.getName());
     // Fill fields with provided data
     for (const [fieldName, value] of Object.entries(data)) {
-      console.log(`Filling field: ${fieldName} with value: ${value}`);
       try {
         if (availableFieldNames.includes(fieldName)) {
           const field = form.getField(fieldName);

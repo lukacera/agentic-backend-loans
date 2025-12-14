@@ -73,7 +73,7 @@ const initializeDirectories = async (): Promise<void> => {
 export const createDraft = async (
   applicantData: SBAApplicationData,
   loanChances?: { score: number; chance: 'low' | 'medium' | 'high'; reasons: string[] }
-): Promise<ApplicationResponse> => {
+): Promise<SBAApplication> => {
   try {
     await initializeDirectories();
     console.log(loanChances);
@@ -94,10 +94,7 @@ export const createDraft = async (
 
     await application.save();
 
-    return {
-      status: ApplicationStatus.DRAFT,
-      message: 'Application saved as draft successfully.'
-    };
+    return application;
 
   } catch (error) {
     console.error('Error creating draft application:', error);
