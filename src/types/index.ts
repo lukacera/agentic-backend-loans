@@ -354,6 +354,7 @@ export interface SBAApplication extends Document {
   unsignedDocuments: DocumentStorageInfo[];
   signedDocuments: DocumentStorageInfo[];
   userProvidedDocuments: UserProvidedDocumentInfo[];
+  draftDocuments?: DraftPDFInfo[]; // Draft PDFs for preview during call
   documentsUploadedToS3: boolean;
   s3UploadedAt?: Date;
 
@@ -606,4 +607,23 @@ export interface StoredLoanChances {
   chance: 'low' | 'medium' | 'high';
   reasons: string[];
   calculatedAt?: Date;
+}
+
+// ==============================
+// DRAFT PDF TYPES
+// ==============================
+
+export interface DraftPDFInfo {
+  fileName: string;
+  s3Key: string;
+  s3Url: string;
+  generatedAt: Date;
+}
+
+export interface FormRevealPayload {
+  draftApplicationId: string;
+  pdfUrls: DraftPDFInfo[];
+  callId?: string;
+  timestamp: string;
+  source: string;
 }
