@@ -172,6 +172,12 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
     s3Url: { type: String },
     uploadedAt: { type: Date, default: Date.now }
   }],
+  draftDocuments: [{
+    fileName: { type: String, required: true },
+    s3Key: { type: String, required: true },
+    s3Url: { type: String },
+    generatedAt: { type: Date, default: Date.now }
+  }],
   documentsUploadedToS3: {
     type: Boolean,
     default: false
