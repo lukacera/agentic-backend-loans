@@ -520,7 +520,6 @@ router.patch('/:applicationId/draft', upload.array('pdfs', 2), async (req, res) 
     // If PDFs are provided, upload them to S3
     if (files && files.length > 0) {
       const uploadedPDFs = [];
-      console.log(files)
       for (const file of files) {
         const s3Key = `drafts/${applicationId}/${file.originalname}`;
         
@@ -1675,26 +1674,27 @@ router.post('/calculate-chances', async (req, res) => {
     // ===== NEW: Create draft application and generate PDFs =====
     
     // Build applicant data from toolCallArgs
-    const applicantData: Partial<SBAApplicationData> = {
-      name: toolCallArgs.name || "Undisclosed",
-      businessName: toolCallArgs.businessName || "Undisclosed",
-      businessPhoneNumber: toolCallArgs.businessPhone || toolCallArgs.businessPhoneNumber || "",
+    const applicantData: any = {
+      name: (typeof toolCallArgs.name === 'string' && toolCallArgs.name.trim()) || "Undisclosed",
+      businessName: (typeof toolCallArgs.businessName === 'string' && toolCallArgs.businessName.trim()) || "Undisclosed",
+      businessPhoneNumber: (typeof toolCallArgs.businessPhone === 'string' && toolCallArgs.businessPhone.trim()) || 
+                           (typeof toolCallArgs.businessPhoneNumber === 'string' && toolCallArgs.businessPhoneNumber.trim()) || "",
       userType: applicationType === 'buyer' ? 'buyer' : 'owner',
       creditScore: Number(toolCallArgs.creditScore || toolCallArgs.buyerCreditScore || toolCallArgs.ownerCreditScore || 0),
       yearFounded: Number(toolCallArgs.yearFounded || 0),
       isUSCitizen: toolCallArgs.isUSCitizen === true,
       // Add type-specific fields
       ...(applicationType === 'buyer' ? {
-        purchasePrice: toolCallArgs.purchasePrice,
-        availableCash: toolCallArgs.availableCash,
-        businessCashFlow: toolCallArgs.businessCashFlow,
-        industryExperience: toolCallArgs.industryExperience
+        purchasePrice: String(toolCallArgs.purchasePrice || ''),
+        availableCash: String(toolCallArgs.availableCash || ''),
+        businessCashFlow: String(toolCallArgs.businessCashFlow || ''),
+        industryExperience: String(toolCallArgs.industryExperience || '')
       } : {
-        monthlyRevenue: toolCallArgs.monthlyRevenue,
-        monthlyExpenses: toolCallArgs.monthlyExpenses,
-        existingDebtPayment: toolCallArgs.existingDebtPayment,
-        requestedLoanAmount: toolCallArgs.requestedLoanAmount,
-        loanPurpose: toolCallArgs.loanPurpose
+        monthlyRevenue: String(toolCallArgs.monthlyRevenue || ''),
+        monthlyExpenses: String(toolCallArgs.monthlyExpenses || ''),
+        existingDebtPayment: String(toolCallArgs.existingDebtPayment || ''),
+        requestedLoanAmount: String(toolCallArgs.requestedLoanAmount || ''),
+        loanPurpose: String(toolCallArgs.loanPurpose || '')
       })
     };
 
@@ -1708,7 +1708,6 @@ router.post('/calculate-chances', async (req, res) => {
 
     // Generate draft PDFs
     const draftPDFs = await generateDraftPDFs(applicantData, draftApplicationId);
-
     // Update draft application with PDF info
     await Application.findByIdAndUpdate(draftApplicationId, {
       draftDocuments: draftPDFs
@@ -1721,14 +1720,24 @@ router.post('/calculate-chances', async (req, res) => {
       result: chanceResult
     }, ["global"]);
 
-    // ===== NEW: Broadcast form-reveal with PDF URLs =====
+    // ===== NEW: Generate presigned URLs for draft PDFs =====
+    const expiresIn = 3600; // 1 hour default
+    const draftPDFsWithPresignedUrls = await Promise.all(
+      draftPDFs.map(async (pdf) => {
+        const presignedUrl = await generatePresignedUrl(pdf.s3Key, expiresIn);
+        return {
+          fileName: pdf.fileName,
+          url: presignedUrl,
+          generatedAt: pdf.generatedAt,
+          expiresIn
+        };
+      })
+    );
+
+    // ===== Broadcast form-reveal with presigned PDF URLs =====
     websocketService.broadcast('form-reveal', {
       draftApplicationId,
-      pdfUrls: draftPDFs.map(pdf => ({
-        fileName: pdf.fileName,
-        url: pdf.s3Url,
-        generatedAt: pdf.generatedAt
-      })),
+      pdfUrls: draftPDFsWithPresignedUrls,
       callId: data.message?.call?.id,
       timestamp: new Date().toISOString(),
       source: 'backend'

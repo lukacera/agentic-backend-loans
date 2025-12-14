@@ -239,7 +239,7 @@ export const generateDraftPDFs = async (
   draftApplicationId: string
 ): Promise<Array<{ fileName: string; s3Key: string; s3Url: string; generatedAt: Date }>> => {
   const generatedDraftPDFs: Array<{ fileName: string; s3Key: string; s3Url: string; generatedAt: Date }> = [];
-  
+
   try {
     await initializeDirectories();
     const sbaForms = ['SBAForm1919.pdf', 'SBAForm413.pdf'];
@@ -300,7 +300,8 @@ export const generateDraftPDFs = async (
             fileBuffer,
             s3Key
           );
-          
+          console.log("s3 resukt:")
+          console.log(s3Result);
           generatedDraftPDFs.push({
             fileName: formName,
             s3Key: s3Result.key,
