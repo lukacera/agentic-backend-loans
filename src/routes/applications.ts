@@ -25,6 +25,7 @@ import {
   DraftApplicationRequest,
   ApplicationStatus,
   UserProvidedDocumentType,
+  DefaultDocumentType,
   LoanChanceResult,
   SBAApplicationData
 } from '../types/index.js';
@@ -477,11 +478,11 @@ router.post('/draft', async (req, res) => {
   }
 });
 
-// PATCH /api/applications/:applicationId/draft - Update draft application with edited PDFs from frontend
-router.patch('/:applicationId/draft', upload.array('documents', 2), async (req, res) => {
+// PATCH /api/applications/:applicationId/draft - Update draft application with edited PDF from frontend
+router.patch('/:applicationId/draft', upload.single('document'), async (req, res) => {
   try {
     const { applicationId } = req.params;
-    const files = req.files as Express.Multer.File[];
+    const file = req.file as Express.Multer.File | undefined;
 
     // Find the draft application
     const application = await Application.findById(applicationId);
@@ -500,56 +501,68 @@ router.patch('/:applicationId/draft', upload.array('documents', 2), async (req, 
       });
     }
 
-    // Optional: Update form data if provided in request body
-    if (req.body.formData) {
-      try {
-        const updatedData = typeof req.body.formData === 'string' 
-          ? JSON.parse(req.body.formData) 
-          : req.body.formData;
-        
-        application.applicantData = {
-          ...application.applicantData,
-          ...updatedData
-        };
-        await application.save();
-      } catch (parseError) {
-        console.error('Error parsing formData:', parseError);
-      }
-    }
+    // If PDF is provided, upload it to S3
+    if (file) {
+      // Validate fileType
+      const fileType = (req.body?.fileType as string)?.trim();
 
-    // If PDFs are provided, upload them to S3
-    if (files && files.length > 0) {
-      const uploadedPDFs = [];
-      for (const file of files) {
-        const s3Key = `drafts/${applicationId}/${file.originalname}`;
-        
-        const s3Result = await uploadDocumentWithRetry(
-          applicationId,
-          file.originalname,
-          file.buffer,
-          s3Key
-        );
-
-        uploadedPDFs.push({
-          fileName: file.originalname,
-          s3Key: s3Result.key,
-          s3Url: s3Result.url,
-          generatedAt: new Date()
+      if (!fileType) {
+        return res.status(400).json({
+          success: false,
+          error: `fileType is required and must be one of: ${Object.values(DefaultDocumentType).join(', ')}`
         });
       }
 
-      // Replace draft documents (complete replacement)
-      application.draftDocuments = uploadedPDFs as any;
+      const validTypes = new Set(Object.values(DefaultDocumentType));
+      if (!validTypes.has(fileType as DefaultDocumentType)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid fileType. Must be one of: ${Object.values(DefaultDocumentType).join(', ')}`
+        });
+      }
+
+      const s3Key = `drafts/${applicationId}/${file.originalname}`;
+      
+      const s3Result = await uploadDocumentWithRetry(
+        applicationId,
+        file.originalname,
+        file.buffer,
+        s3Key
+      );
+
+      const uploadedPDF = {
+        fileName: file.originalname,
+        s3Key: s3Result.key,
+        s3Url: s3Result.url,
+        generatedAt: new Date(),
+        fileType: fileType as DefaultDocumentType
+      };
+
+      // Find existing document with same fileType and replace, or add new
+      const existingIndex = application.draftDocuments?.findIndex(
+        (doc: any) => doc.fileType === fileType
+      ) ?? -1;
+      console.log("fileType", fileType);
+      console.log("existingIndex", existingIndex);
+      if (existingIndex >= 0) {
+        application.draftDocuments![existingIndex] = uploadedPDF as any;
+      } else {
+        if (!application.draftDocuments) {
+          application.draftDocuments = [];
+        }
+        application.draftDocuments.push(uploadedPDF as any);
+      }
       await application.save();
 
-      // Broadcast updated PDFs via WebSocket
+      // Broadcast updated PDF via WebSocket
       websocketService.broadcast('draft-updated', {
         draftApplicationId: applicationId,
-        pdfUrls: uploadedPDFs.map(pdf => ({
-          fileName: pdf.fileName,
-          url: pdf.s3Url,
-          generatedAt: pdf.generatedAt
-        })),
+        pdfUrl: {
+          fileName: uploadedPDF.fileName,
+          url: uploadedPDF.s3Url,
+          generatedAt: uploadedPDF.generatedAt,
+          fileType: uploadedPDF.fileType
+        },
         timestamp: new Date().toISOString(),
         source: 'draft-update'
       }, ["global"]);
@@ -560,11 +573,13 @@ router.patch('/:applicationId/draft', upload.array('documents', 2), async (req, 
           applicationId,
           status: application.status,
           applicantData: application.applicantData,
-          draftDocuments: uploadedPDFs.map(pdf => ({
-            fileName: pdf.fileName,
-            url: pdf.s3Url,
-            generatedAt: pdf.generatedAt
-          }))
+          uploadedDocument: {
+            fileName: uploadedPDF.fileName,
+            url: uploadedPDF.s3Url,
+            generatedAt: uploadedPDF.generatedAt,
+            fileType: uploadedPDF.fileType
+          },
+          draftDocuments: application.draftDocuments
         }
       });
     } else {
@@ -906,6 +921,7 @@ router.get('/documents/sample-contract', async (req, res) => {
 router.get('/:applicationId', async (req, res) => {
   try {
     const { applicationId } = req.params;
+    const expiresIn = parseInt(req.query.expiresIn as string) || 3600; // 1 hour default
     
     const application = await Application.findById(applicationId)
       .populate({
@@ -924,10 +940,68 @@ router.get('/:applicationId', async (req, res) => {
         error: 'Application not found'
       });
     }
+
+    // Generate presigned URLs for all document types
+    const [unsignedDocuments, signedDocuments, userProvidedDocuments, draftDocuments] = await Promise.all([
+      // Unsigned documents
+      Promise.all(
+        (application.unsignedDocuments || []).map(async (doc) => ({
+          fileName: doc.fileName,
+          s3Key: doc.s3Key,
+          url: await generatePresignedUrl(doc.s3Key, expiresIn),
+          uploadedAt: doc.uploadedAt,
+          fileType: doc.fileType,
+          expiresIn
+        }))
+      ),
+      // Signed documents
+      Promise.all(
+        (application.signedDocuments || []).map(async (doc) => ({
+          fileName: doc.fileName,
+          s3Key: doc.s3Key,
+          url: await generatePresignedUrl(doc.s3Key, expiresIn),
+          uploadedAt: doc.uploadedAt,
+          signedAt: doc.signedAt,
+          fileType: doc.fileType,
+          expiresIn
+        }))
+      ),
+      // User provided documents
+      Promise.all(
+        (application.userProvidedDocuments || []).map(async (doc) => ({
+          fileName: doc.fileName,
+          s3Key: doc.s3Key,
+          url: await generatePresignedUrl(doc.s3Key, expiresIn),
+          uploadedAt: doc.uploadedAt,
+          fileType: doc.fileType,
+          expiresIn
+        }))
+      ),
+      // Draft documents
+      Promise.all(
+        (application.draftDocuments || []).map(async (doc: any) => ({
+          fileName: doc.fileName,
+          s3Key: doc.s3Key,
+          url: await generatePresignedUrl(doc.s3Key, expiresIn),
+          generatedAt: doc.generatedAt,
+          fileType: doc.fileType,
+          expiresIn
+        }))
+      )
+    ]);
+
+    // Convert to plain object and override document arrays with presigned versions
+    const applicationData = application.toObject();
     
     res.json({
       success: true,
-      data: application
+      data: {
+        ...applicationData,
+        unsignedDocuments,
+        signedDocuments,
+        userProvidedDocuments,
+        draftDocuments
+      }
     });
     
   } catch (error) {

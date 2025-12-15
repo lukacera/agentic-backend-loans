@@ -1,5 +1,5 @@
 import { Schema, model, Document } from 'mongoose';
-import { SBAApplication, ApplicationStatus, UserProvidedDocumentType, BankSubmissionStatus } from '../types/index.js';
+import { SBAApplication, ApplicationStatus, UserProvidedDocumentType, BankSubmissionStatus, DefaultDocumentType } from '../types/index.js';
 
 const sbaApplicationSchema = new Schema<SBAApplication>({
   applicantData: {
@@ -173,6 +173,11 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
     uploadedAt: { type: Date, default: Date.now }
   }],
   draftDocuments: [{
+    fileType: {
+      type: String,
+      required: true,
+      enum: Object.values(DefaultDocumentType)
+    },
     fileName: { type: String, required: true },
     s3Key: { type: String, required: true },
     s3Url: { type: String },

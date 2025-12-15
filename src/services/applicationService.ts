@@ -8,8 +8,8 @@ import {
   DocumentStorageInfo,
   SBAApplication,
   UserProvidedDocumentType,
-  UserProvidedDocumentInfo,
   LoanChanceResult,
+  DefaultDocumentType,
 } from '../types/index.js';
 import { sendEmail } from './emailSender.js';
 import { composeEmail, createEmailAgent } from '../agents/EmailAgent.js';
@@ -63,6 +63,27 @@ const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
 const GENERATED_DIR = path.join(process.cwd(), 'generated');
 
 // Credit score mapping removed - now using plain number strings
+
+// Helper function to determine DefaultDocumentType from fileName
+const getDefaultDocumentType = (fileName: string): DefaultDocumentType | undefined => {
+  if (fileName.includes('1919') || fileName.includes('SBAForm1919')) {
+    return DefaultDocumentType.SBA_1919;
+  }
+  if (fileName.includes('413') || fileName.includes('SBAForm413')) {
+    return DefaultDocumentType.SBA_413;
+  }
+  return undefined;
+};
+
+const getUserProvidedDocumentType = (fileName: string): UserProvidedDocumentType | undefined => {
+  if (fileName.includes('taxReturn') || fileName.includes('TaxReturn')) {
+    return UserProvidedDocumentType.TAX_RETURN;
+  }
+  if (fileName.includes('L&P') || fileName.includes('L&P')) {
+    return UserProvidedDocumentType.L_AND_P;
+  }
+  return undefined;
+};
 
 // Ensure directories exist
 const initializeDirectories = async (): Promise<void> => {
@@ -237,8 +258,8 @@ const processApplicationAsync = async (application: SBAApplication): Promise<voi
 export const generateDraftPDFs = async (
   applicantData: Partial<SBAApplicationData>,
   draftApplicationId: string
-): Promise<Array<{ fileName: string; s3Key: string; s3Url: string; generatedAt: Date }>> => {
-  const generatedDraftPDFs: Array<{ fileName: string; s3Key: string; s3Url: string; generatedAt: Date }> = [];
+): Promise<Array<DocumentStorageInfo>> => {
+  const generatedDraftPDFs: Array<DocumentStorageInfo> = [];
 
   try {
     await initializeDirectories();
@@ -302,11 +323,20 @@ export const generateDraftPDFs = async (
           );
           console.log("s3 resukt:")
           console.log(s3Result);
+          
+          const fileType = getDefaultDocumentType(formName);
+
+          if (!fileType) {
+            console.error(`Failed to get default document type for ${formName}`);
+            return [];
+          }
+
           generatedDraftPDFs.push({
             fileName: formName,
             s3Key: s3Result.key,
             s3Url: s3Result.url,
-            generatedAt: new Date()
+            uploadedAt: new Date(),
+            fileType: fileType
           });
           
           await fs.remove(fillResult.outputPath);
@@ -432,11 +462,18 @@ const uploadDocumentsToS3 = async (
         fileBuffer
       );
 
+      const fileType = getDefaultDocumentType(fileName);
+      if (!fileType) {
+        console.error(`Failed to get default document type for ${fileName}`);
+        return [];
+      }
+      
       uploadedDocs.push({
         fileName,
         s3Key: s3Result.key,
         s3Url: s3Result.url,
-        uploadedAt: new Date()
+        uploadedAt: new Date(),
+        fileType: fileType
       });
 
     } catch (error) {
@@ -494,12 +531,23 @@ export const handleSignedDocuments = async (
         doc.buffer
       );
 
+      const fileType = getUserProvidedDocumentType(doc.fileName);
+      if (!fileType) {
+        console.error(`Failed to get user provided document type for ${doc.fileName}`);
+        return {
+          status: ApplicationStatus.SIGNED,
+          message: 'Failed to get user provided document type',
+          documentsGenerated: []
+        };
+      }
+
       uploadedSignedDocs.push({
         fileName: doc.fileName,
         s3Key: s3Result.key,
         s3Url: s3Result.url,
         uploadedAt: new Date(),
-        signedAt: new Date()
+        signedAt: new Date(),
+        fileType: fileType
       });
     }
 
@@ -534,7 +582,7 @@ export const handleSignedDocuments = async (
 export const addUserProvidedDocuments = async (
   applicationId: string,
   documents: Array<{ fileName: string; buffer: Buffer; fileType: UserProvidedDocumentType }>
-): Promise<{ application: SBAApplication; uploadedDocuments: UserProvidedDocumentInfo[] }> => {
+): Promise<{ application: SBAApplication; uploadedDocuments: DocumentStorageInfo[] }> => {
   try {
     const application = await Application.findById(applicationId);
 
@@ -566,7 +614,7 @@ export const addUserProvidedDocuments = async (
       }
     }
 
-    const uploadedDocuments: UserProvidedDocumentInfo[] = [];
+    const uploadedDocuments: DocumentStorageInfo[] = [];
 
     for (const doc of documents) {
       const s3Result = await uploadDocumentWithRetry(
@@ -680,7 +728,8 @@ export const markUnsignedDocumentAsSigned = async (
     s3Key: signedS3Key ?? unsignedDoc.s3Key,
     s3Url: signedS3Url ?? unsignedDoc.s3Url,
     uploadedAt: unsignedDoc.uploadedAt,
-    signedAt: signedAtValue
+    signedAt: signedAtValue,
+    fileType: unsignedDoc.fileType
   };
 
   application.signedDocuments.push(signedDoc);
