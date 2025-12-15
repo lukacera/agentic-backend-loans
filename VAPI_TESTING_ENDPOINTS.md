@@ -843,3 +843,79 @@ Then replace hardcoded values in requests:
 - Check that your WebSocket connection is established
 - Verify the server is running on the correct port (default: 3000)
 
+
+## Example curl for all endpoints of 1919 form:
+
+curl --location 'http://localhost:3000/vapi-ai' \
+--header 'Content-Type: application/json' \
+--data '{
+  "message": {
+    "type": "tool-calls",
+    "call": {
+      "id": "test-call-all-fields"
+    },
+    "toolCalls": [
+      {"id": "tc-1", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"applicantname\", \"text\": \"Applicant Name\"}"}},
+      {"id": "tc-2", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"operatingnbusname\", \"text\": \"Operating Business Name\"}"}},
+      {"id": "tc-3", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"dba\", \"text\": \"DBA (Doing Business As)\"}"}},
+      {"id": "tc-4", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"busTIN\", \"text\": \"Business TIN\"}"}},
+      {"id": "tc-5", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"PrimarIndustry\", \"text\": \"Primary Industry\"}"}},
+      {"id": "tc-6", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"busphone\", \"text\": \"Business Phone\"}"}},
+      {"id": "tc-7", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"UniqueEntityID\", \"text\": \"Unique Entity ID\"}"}},
+      {"id": "tc-8", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"yearbeginoperations\", \"text\": \"Year Begin Operations\"}"}},
+      {"id": "tc-9", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"entityother\", \"text\": \"Entity Other\"}"}},
+      {"id": "tc-10", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"specOwnTypeOther\", \"text\": \"Specific Ownership Type Other\"}"}},
+      {"id": "tc-11", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"busAddr\", \"text\": \"Business Address\"}"}},
+      {"id": "tc-12", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"projAddr\", \"text\": \"Project Address\"}"}},
+      {"id": "tc-13", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"pocName\", \"text\": \"Point of Contact Name\"}"}},
+      {"id": "tc-14", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"pocEmail\", \"text\": \"Point of Contact Email\"}"}},
+      {"id": "tc-15", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"existEmp\", \"text\": \"Existing Employees\"}"}},
+      {"id": "tc-16", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"fteJobs\", \"text\": \"FTE Jobs\"}"}},
+      {"id": "tc-17", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"debtAmt\", \"text\": \"Debt Amount\"}"}},
+      {"id": "tc-18", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"purchAmt\", \"text\": \"Purchase Amount\"}"}},
+      {"id": "tc-19", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownName1\", \"text\": \"Owner 1 Name\"}"}},
+      {"id": "tc-20", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownTitle1\", \"text\": \"Owner 1 Title\"}"}},
+      {"id": "tc-21", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownPerc1\", \"text\": \"Owner 1 Percentage\"}"}},
+      {"id": "tc-22", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownTin1\", \"text\": \"Owner 1 TIN\"}"}},
+      {"id": "tc-23", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownHome1\", \"text\": \"Owner 1 Home\"}"}},
+      {"id": "tc-24", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownName2\", \"text\": \"Owner 2 Name\"}"}},
+      {"id": "tc-25", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownTitle2\", \"text\": \"Owner 2 Title\"}"}},
+      {"id": "tc-26", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownPerc2\", \"text\": \"Owner 2 Percentage\"}"}},
+      {"id": "tc-27", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownTin2\", \"text\": \"Owner 2 TIN\"}"}},
+      {"id": "tc-28", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownHome2\", \"text\": \"Owner 2 Home\"}"}},
+      {"id": "tc-29", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownName3\", \"text\": \"Owner 3 Name\"}"}},
+      {"id": "tc-30", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownTitle3\", \"text\": \"Owner 3 Title\"}"}},
+      {"id": "tc-31", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownPerc3\", \"text\": \"Owner 3 Percentage\"}"}},
+      {"id": "tc-32", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownTin3\", \"text\": \"Owner 3 TIN\"}"}},
+      {"id": "tc-33", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownHome3\", \"text\": \"Owner 3 Home\"}"}},
+      {"id": "tc-34", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownName4\", \"text\": \"Owner 4 Name\"}"}},
+      {"id": "tc-35", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownTitle4\", \"text\": \"Owner 4 Title\"}"}},
+      {"id": "tc-36", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownPerc4\", \"text\": \"Owner 4 Percentage\"}"}},
+      {"id": "tc-37", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownTin4\", \"text\": \"Owner 4 TIN\"}"}},
+      {"id": "tc-38", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownHome4\", \"text\": \"Owner 4 Home\"}"}},
+      {"id": "tc-39", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownName5\", \"text\": \"Owner 5 Name\"}"}},
+      {"id": "tc-40", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownTitle5\", \"text\": \"Owner 5 Title\"}"}},
+      {"id": "tc-41", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownPerc5\", \"text\": \"Owner 5 Percentage\"}"}},
+      {"id": "tc-42", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownTin5\", \"text\": \"Owner 5 TIN\"}"}},
+      {"id": "tc-43", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownHome5\", \"text\": \"Owner 5 Home\"}"}},
+      {"id": "tc-44", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownPos\", \"text\": \"Owner Position\"}"}},
+      {"id": "tc-45", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"EquipAmt\", \"text\": \"Equipment Amount\"}"}},
+      {"id": "tc-46", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"otherAmt2\", \"text\": \"Other Amount 2\"}"}},
+      {"id": "tc-47", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"otherAmt1\", \"text\": \"Other Amount 1\"}"}},
+      {"id": "tc-48", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"invAmt\", \"text\": \"Inventory Amount\"}"}},
+      {"id": "tc-49", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"busAcqAmt\", \"text\": \"Business Acquisition Amount\"}"}},
+      {"id": "tc-50", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"capitalAmt\", \"text\": \"Capital Amount\"}"}},
+      {"id": "tc-51", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"ownName\", \"text\": \"Owner Name\"}"}},
+      {"id": "tc-52", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"expSalesTot\", \"text\": \"Expected Sales Total\"}"}},
+      {"id": "tc-53", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"expCtry1\", \"text\": \"Export Country 1\"}"}},
+      {"id": "tc-54", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"expCtry2\", \"text\": \"Export Country 2\"}"}},
+      {"id": "tc-55", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"expCtry3\", \"text\": \"Export Country 3\"}"}},
+      {"id": "tc-56", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"sigDate\", \"text\": \"Signature Date\"}"}},
+      {"id": "tc-57", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"repName\", \"text\": \"Representative Name\"}"}},
+      {"id": "tc-58", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"repTitle\", \"text\": \"Representative Title\"}"}},
+      {"id": "tc-59", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"fteCreate\", \"text\": \"FTE Create\"}"}},
+      {"id": "tc-60", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"other1spec\", \"text\": \"Other 1 Specification\"}"}},
+      {"id": "tc-61", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"other2spec\", \"text\": \"Other 2 Specification\"}"}}
+    ]
+  }
+}'

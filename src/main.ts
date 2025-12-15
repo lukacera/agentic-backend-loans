@@ -773,7 +773,7 @@ app.post('/vapi-ai', (req, res) => {
             }
 
             case 'captureHighlightField': {
-              const { fieldName } = functionArgs as { fieldName?: string };
+              const { fieldName, text } = functionArgs as { fieldName?: string; text?: string };
               
               if (!fieldName) {
                 return {
@@ -790,16 +790,17 @@ app.post('/vapi-ai', (req, res) => {
                 callId: message.call?.id,
                 timestamp: new Date().toISOString(),
                 fieldName,
+                text,
                 source: 'vapi-tool-call'
               }, rooms);
 
-              console.log(`✨ Highlighted field: ${fieldName} for call ${message.call?.id}`);
+              console.log(`✨ Highlighted field: ${fieldName} with text: "${text || 'none'}" for call ${message.call?.id}`);
 
               return {
                 toolCallId: toolCall.id,
                 result: JSON.stringify({
                   success: true,
-                  message: `Field "${fieldName}" highlighted successfully.`
+                  message: `Field "${fieldName}" highlighted successfully${text ? ' with text' : ''}.`
                 })
               };
             }

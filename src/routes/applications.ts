@@ -478,7 +478,7 @@ router.post('/draft', async (req, res) => {
 });
 
 // PATCH /api/applications/:applicationId/draft - Update draft application with edited PDFs from frontend
-router.patch('/:applicationId/draft', upload.array('pdfs', 2), async (req, res) => {
+router.patch('/:applicationId/draft', upload.array('documents', 2), async (req, res) => {
   try {
     const { applicationId } = req.params;
     const files = req.files as Express.Multer.File[];
