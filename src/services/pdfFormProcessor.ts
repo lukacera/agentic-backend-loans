@@ -4,7 +4,6 @@ import { PDFDocument, PDFForm, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioG
 import { 
   PDFFormField, 
   PDFFormData, 
-  FormFillingRequest, 
   FormFillingResponse,
   FormAnalysisResult 
 } from '../types';

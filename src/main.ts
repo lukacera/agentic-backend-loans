@@ -772,6 +772,38 @@ app.post('/vapi-ai', (req, res) => {
               };
             }
 
+            case 'captureHighlightField': {
+              const { fieldName } = functionArgs as { fieldName?: string };
+              
+              if (!fieldName) {
+                return {
+                  toolCallId: toolCall.id,
+                  result: JSON.stringify({
+                    success: false,
+                    error: 'Field name is required'
+                  })
+                };
+              }
+
+              // Broadcast highlight event
+              websocketService.broadcast('highlight-fields', {
+                callId: message.call?.id,
+                timestamp: new Date().toISOString(),
+                fieldName,
+                source: 'vapi-tool-call'
+              }, rooms);
+
+              console.log(`✨ Highlighted field: ${fieldName} for call ${message.call?.id}`);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: `Field "${fieldName}" highlighted successfully.`
+                })
+              };
+            }
+
             default:
               console.warn(`⚠️ Unknown function: ${functionName}`);
               return {
