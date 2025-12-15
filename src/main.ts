@@ -773,9 +773,10 @@ app.post('/vapi-ai', (req, res) => {
             }
 
             case 'captureHighlightField': {
-              const { fieldName, text } = functionArgs as { fieldName?: string; text?: string };
-              
-              if (!fieldName) {
+              const { field, text } = functionArgs as { field?: string; text?: string };
+              console.log("fieldName", field);
+              console.log("text", text);
+              if (!field) {
                 return {
                   toolCallId: toolCall.id,
                   result: JSON.stringify({
@@ -789,18 +790,18 @@ app.post('/vapi-ai', (req, res) => {
               websocketService.broadcast('highlight-fields', {
                 callId: message.call?.id,
                 timestamp: new Date().toISOString(),
-                fieldName,
+                field,
                 text,
                 source: 'vapi-tool-call'
               }, rooms);
 
-              console.log(`✨ Highlighted field: ${fieldName} with text: "${text || 'none'}" for call ${message.call?.id}`);
+              console.log(`✨ Highlighted field: ${field} with text: "${text || 'none'}" for call ${message.call?.id}`);
 
               return {
                 toolCallId: toolCall.id,
                 result: JSON.stringify({
                   success: true,
-                  message: `Field "${fieldName}" highlighted successfully${text ? ' with text' : ''}.`
+                  message: `Field "${field}" highlighted successfully${text ? ' with text' : ''}.`
                 })
               };
             }

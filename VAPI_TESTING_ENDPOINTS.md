@@ -919,3 +919,19 @@ curl --location 'http://localhost:3000/vapi-ai' \
     ]
   }
 }'
+
+
+curl --location 'http://localhost:3000/vapi-ai' \
+--header 'Content-Type: application/json' \
+--data '{
+  "message": {
+    "type": "tool-calls",
+    "call": {
+      "id": "test-call-simple"
+    },
+    "toolCalls": [
+      {"id": "tc-1", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"applicantname\", \"text\": \"Applicant Name\"}"}},
+      {"id": "tc-2", "function": {"name": "TEST_captureHighlightField", "arguments": "{\"fieldName\": \"operatingnbusname\", \"text\": \"Operating Business Name\"}"}}
+    ]
+  }
+}'

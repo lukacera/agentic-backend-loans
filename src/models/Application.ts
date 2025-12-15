@@ -69,6 +69,11 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
     },
     industryExperience: {
       type: String
+    },
+    // Additional form fields collected during guided VAPI form completion
+    additionalFormData: {
+      type: Schema.Types.Mixed,
+      default: {}
     }
   },
   status: {
