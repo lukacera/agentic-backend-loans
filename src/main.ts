@@ -14,6 +14,9 @@ import pollEmails from './services/poller.js';
 import mongoose from 'mongoose';
 import websocketService from './services/websocket.js';
 import { VapiClient } from "@vapi-ai/server-sdk"
+import { Application } from './models/Application.js';
+import { downloadDocument } from './services/s3Service.js';
+import { extractFormFieldValues } from './services/pdfFormProcessor.js';
 
 // Load environment variables
 dotenv.config();
@@ -301,7 +304,7 @@ app.post('/api/create-vapi-assistant', async (req, res) => {
   }
 });
 
-app.post('/vapi-ai', (req, res) => {
+app.post('/vapi-ai', async (req, res) => {
   try {
     const { message } = req.body;
 
@@ -329,7 +332,7 @@ app.post('/vapi-ai', (req, res) => {
         const toolCalls = Array.isArray(message.toolCalls) ? message.toolCalls : [];
 
         // Process each tool call
-        const results = toolCalls.map((toolCall: any) => {
+        const results = await Promise.all(toolCalls.map(async (toolCall: any) => {
           const functionName = toolCall?.function?.name;
           const rawArgs = toolCall?.function?.arguments;
 
@@ -772,10 +775,80 @@ app.post('/vapi-ai', (req, res) => {
               };
             }
 
+            case 'getFilledFields':{
+              const { applicationId } = functionArgs as { applicationId?: string };
+
+              if (!applicationId) {
+                return {
+                  toolCallId: toolCall.id,
+                  result: JSON.stringify({
+                    success: false,
+                    error: 'applicationId is required'
+                  })
+                };
+              }
+
+              try {
+                const application = await Application.findById(applicationId);
+                if (!application) {
+                  return {
+                    toolCallId: toolCall.id,
+                    result: JSON.stringify({
+                      success: false,
+                      error: 'Application not found'
+                    })
+                  };
+                }
+
+                const document = application.draftDocuments?.find((d: any) => d.fileType === 'SBA_1919');
+                if (!document) {
+                  return {
+                    toolCallId: toolCall.id,
+                    result: JSON.stringify({
+                      success: false,
+                      error: 'No draft document found'
+                    })
+                  };
+                }
+
+                const pdfBuffer = await downloadDocument(document.s3Key);
+                const { filledFields, emptyFields, allFields } = await extractFormFieldValues(pdfBuffer);
+
+                // Store emptyFields in userDataStore for this call (used by captureHighlightField)
+                saveOrUpdateUserData(message.call?.id, {
+                  emptyFields,
+                  applicationId
+                });
+
+                console.log(`📋 Retrieved filled fields for application ${applicationId}: ${filledFields.length} filled, ${emptyFields.length} empty`);
+
+                return {
+                  toolCallId: toolCall.id,
+                  result: JSON.stringify({
+                    success: true,
+                    filledFields,
+                    emptyFields,
+                    allFields
+                  })
+                };
+              } catch (error) {
+                console.error('Error getting filled fields:', error);
+                return {
+                  toolCallId: toolCall.id,
+                  result: JSON.stringify({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to get filled fields'
+                  })
+                };
+              }
+            }
+
             case 'captureHighlightField': {
               const { field, text } = functionArgs as { field?: string; text?: string };
               console.log("fieldName", field);
               console.log("text", text);
+              console.log(userDataStore)
+
               if (!field) {
                 return {
                   toolCallId: toolCall.id,
@@ -786,7 +859,7 @@ app.post('/vapi-ai', (req, res) => {
                 };
               }
 
-              // Broadcast highlight event
+              // Broadcast highlight event for current field
               websocketService.broadcast('highlight-fields', {
                 callId: message.call?.id,
                 timestamp: new Date().toISOString(),
@@ -796,6 +869,71 @@ app.post('/vapi-ai', (req, res) => {
               }, rooms);
 
               console.log(`✨ Highlighted field: ${field} with text: "${text || 'none'}" for call ${message.call?.id}`);
+
+              // Auto-highlight next field if we filled a field (text provided)
+              if (text) {
+                const userData = getUserData(message.call?.id);
+                console.log("userData")
+                console.log(userData)
+                let emptyFields = userData?.emptyFields as string[] | undefined;
+                const applicationId = userData?.applicationId as string | undefined;
+
+                // If we have applicationId but no emptyFields, fetch from PDF
+                if (!emptyFields && applicationId) {
+                  try {
+                    const application = await Application.findById(applicationId);
+                    if (application) {
+                      const document = application.draftDocuments?.find((d: any) => d.fileType === 'SBA_1919');
+                      if (document) {
+                        const pdfBuffer = await downloadDocument(document.s3Key);
+                        const fieldData = await extractFormFieldValues(pdfBuffer);
+                        console.log("fieldData")
+                        console.log(fieldData)
+                        emptyFields = fieldData.emptyFields;
+                        // Cache for future calls
+                        saveOrUpdateUserData(message.call?.id, { emptyFields });
+                        console.log(`📋 Fetched empty fields for auto-advance: ${emptyFields.length} empty fields`);
+                      }
+                    }
+                  } catch (err) {
+                    console.warn('Could not fetch PDF state for auto-advance:', err);
+                  }
+                }
+
+                // Track the current field as filled for this session
+                const filledFieldsThisSession = (userData?.filledFieldsThisSession as string[]) || [];
+                if (!filledFieldsThisSession.includes(field)) {
+                  filledFieldsThisSession.push(field);
+                  saveOrUpdateUserData(message.call?.id, { filledFieldsThisSession });
+                }
+
+                let nextField: string | undefined;
+                const currentIndex = FORM_FIELD_ORDER.indexOf(field);
+
+                // Find next empty field (check both PDF empty fields and session-filled fields)
+                for (let i = currentIndex + 1; i < FORM_FIELD_ORDER.length; i++) {
+                  const candidateField = FORM_FIELD_ORDER[i];
+                  const isEmptyInPdf = !emptyFields || emptyFields.includes(candidateField);
+                  const notFilledThisSession = !filledFieldsThisSession.includes(candidateField);
+                  if (isEmptyInPdf && notFilledThisSession) {
+                    console.log(`➡️ Next field to highlight: ${candidateField}`);
+                    nextField = candidateField;
+                    break;
+                  }
+                }
+
+                // Broadcast highlight for next field (if exists)
+                if (nextField) {
+                  console.log(`🔜 Auto-advancing to next field: ${nextField}`);
+                  websocketService.broadcast('highlight-fields', {
+                    callId: message.call?.id,
+                    timestamp: new Date().toISOString(),
+                    field: nextField,
+                    source: 'auto-advance'
+                  }, rooms);
+                  console.log(`➡️ Auto-highlighted next field: ${nextField}`);
+                }
+              }
 
               return {
                 toolCallId: toolCall.id,
@@ -816,8 +954,8 @@ app.post('/vapi-ai', (req, res) => {
                 })
               };
           }
-        });
-        
+        }));
+
         // IMPORTANT: Return results to Vapi
         return res.json({ results });
       }
@@ -863,6 +1001,51 @@ app.post('/vapi-ai', (req, res) => {
     });
   }
 });
+
+// Form field order for auto-highlighting next field
+const FORM_FIELD_ORDER = [
+  "applicantname",
+  "operatingnbusname",
+  "dba",
+  "busTIN",
+  "PrimarIndustry",
+  "busphone",
+  "UniqueEntityID",
+  "yearbeginoperations",
+  "entityother",
+  "specOwnTypeOther",
+  "busAddr",
+  "projAddr",
+  "pocName",
+  "pocEmail",
+  "existEmp",
+  "fteJobs",
+  "debtAmt",
+  "purchAmt",
+  "ownName1",
+  "ownTitle1",
+  "ownPerc1",
+  "ownTin1",
+  "ownHome1",
+  "ownPos",
+  "EquipAmt",
+  "otherAmt2",
+  "otherAmt1",
+  "invAmt",
+  "busAcqAmt",
+  "capitalAmt",
+  "ownName",
+  "expSalesTot",
+  "expCtry1",
+  "expCtry2",
+  "expCtry3",
+  "sigDate",
+  "repName",
+  "repTitle",
+  "fteCreate",
+  "other1spec",
+  "other2spec"
+];
 
 // Helper function to save or update user data
 // This maintains one record per call and updates it as data comes in
