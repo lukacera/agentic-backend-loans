@@ -1028,8 +1028,6 @@ const FORM_FIELD_ORDER = [
   "busphone",
   "UniqueEntityID",
   "yearbeginoperations",
-  "entityother",
-  "specOwnTypeOther",
   "busAddr",
   "projAddr",
   "pocName",

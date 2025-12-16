@@ -275,26 +275,14 @@ export const generateDraftPDFs = async (
       }
       
       try {
-        const formAnalysis = await extractFormFields(templatePath);
-        const documentAgent = createDocumentAgent();
-        
-        const formData = await mapDataWithAI(
-          formAnalysis.fields,
-          applicantData,
-          documentAgent,
-          [
-            `This is a DRAFT SBA loan application form (${formName}).`,
-            `Fill only the fields that have data available.`,
-            `Leave fields blank if data is missing.`,
-            `Rules for mapping fields:`,
-            `- For SBAForm413.pdf, set the checkbox for "7(a) loan / 504 loan / Surety Bonds" to checked.`,
-            `- For all Owner Legal Name fields, use applicantData.name. THIS DOES NOT APPLY to lists/tables containing multiple owners - you are supposed to fill just the first row there.`,
-            `- For all Owner position fields, use "Owner".`,
-            `- For all ownership percentage fields, set to "100%".`,
-            `- For all fields which ask for date informations is current of, or today's date, set to today's date.`,
-            `- Map the business application data to the appropriate form fields.`,
-          ].join('\n')
-        );
+        // Simple direct mapping - only fill applicantname and yearbeginoperations
+        const formData: Record<string, any> = {};
+        if (applicantData.name) {
+          formData['applicantname'] = applicantData.name;
+        }
+        if (applicantData.yearFounded) {
+          formData['yearbeginoperations'] = String(applicantData.yearFounded);
+        }
         
         const fillResult = await fillPDFForm(
           templatePath,
@@ -365,40 +353,16 @@ const generateSBADocuments = async (
         console.warn(`Template not found: ${templatePath}`);
         continue;
       }
-      
+     
       try {
-        // Extract form fields from the PDF template
-        const formAnalysis = await extractFormFields(templatePath);
-
-        // Create document agent for AI processing
-        const documentAgent = createDocumentAgent();
-        
-        // Map applicant data to form fields using AI
-        // If applicantData.type is "buyer", set loanPurpose to "Business Acquisition"
-        const formData = await mapDataWithAI(
-          formAnalysis.fields,
-          applicantData,
-          documentAgent,
-          [
-            `This is an SBA loan application form (${formName}).`,
-            `Rules for mapping fields:`,
-            `- If applicantData.userType is "buyer", set Purpose of the loan to "Business Acquisition".`,
-            `- If applicantData.userType is "owner", set Purpose of the loan to the value in applicantData.loanPurpose; if you cannot find the checkbox in the form with it, check "Other" and write it in the provided field.`,
-            `- For SBAForm413.pdf, set the checkbox for "7(a) loan / 504 loan / Surety Bonds" to checked.`,
-            `- For SBAForm1919.pdf, only 1 purpose of loan field can be checked`,
-            `- For all forms, set Business/Entity Type to "LLC".`,
-            `- For all forms, leave TIN/EIN and Primary Industry blank.`,
-            `- For all Owner Legal Name fields, use applicantData.name. THIS DOES NOT APPLY to lists/tables containing multiple owners - you are supposed to fill just the first row there.`,
-            `- For all Owner position fields, use "Owner".`,
-            `- For Veteran Status, use non veteran`,
-            `- For Race, use "white"`,
-            `- For ethnicity, use "not hispanic or latino"`,
-            `- For Sex, if you can figure it out from the name, set it accordingly; otherwise, set to "Male".`,
-            `- For all ownership percentage fields, set to "100%".`,
-            `- For all fields which ask for date informations is current of, or today's date, set to today's date.`,
-            `- Map the business application data to the appropriate form fields.`,
-          ].join('\n')
-        );
+        // Simple direct mapping - only fill applicantname and yearbeginoperations
+        const formData: Record<string, any> = {};
+        if (applicantData.name) {
+          formData['applicantname'] = applicantData.name;
+        }
+        if (applicantData.yearFounded) {
+          formData['yearbeginoperations'] = String(applicantData.yearFounded);
+        }
         // Fill the PDF form
         const fillResult = await fillPDFForm(
           templatePath,
