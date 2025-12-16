@@ -775,7 +775,26 @@ app.post('/vapi-ai', async (req, res) => {
               };
             }
 
-            case 'getFilledFields':{
+            case 'captureApplicationId': {
+              const { applicationId } = functionArgs as { applicationId?: string };
+
+              if (!applicationId) {
+                return {
+                  toolCallId: toolCall.id,
+                  result: JSON.stringify({ success: false, error: 'applicationId is required' })
+                };
+              }
+
+              saveOrUpdateUserData(message.call?.id, { applicationId });
+              console.log(`📝 Stored applicationId: ${applicationId} for call ${message.call?.id}`);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({ success: true, applicationId })
+              };
+            }
+
+            case 'getFilledFields': {
               const { applicationId } = functionArgs as { applicationId?: string };
 
               if (!applicationId) {
@@ -845,9 +864,6 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureHighlightField': {
               const { field, text } = functionArgs as { field?: string; text?: string };
-              console.log("fieldName", field);
-              console.log("text", text);
-              console.log(userDataStore)
 
               if (!field) {
                 return {
