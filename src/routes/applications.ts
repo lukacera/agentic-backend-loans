@@ -1791,6 +1791,7 @@ router.post('/calculate-chances', async (req, res) => {
         const presignedUrl = await generatePresignedUrl(pdf.s3Key, expiresIn);
         return {
           fileName: pdf.fileName,
+          fileType: pdf.fileType,
           url: presignedUrl,
           generatedAt: pdf.generatedAt,
           expiresIn
