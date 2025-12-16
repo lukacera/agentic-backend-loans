@@ -320,29 +320,21 @@ export const extractFormFieldValues = async (
 
     for (const field of fields) {
       const fieldName = field.getName();
-      let value: any = null;
+      const fieldType = field.constructor.name;
+
+      // Only process text fields
+      if (fieldType !== 'PDFTextField' && fieldType !== 'PDFTextField2') {
+        continue;
+      }
 
       try {
-        const fieldType = field.constructor.name;
-
-        if (fieldType === 'PDFTextField' || fieldType === 'PDFTextField2') {
-          const textField = field as PDFTextField;
-          value = textField.getText();
-        } else if (fieldType === 'PDFCheckBox' || fieldType === 'PDFCheckBox2') {
-          const checkbox = field as PDFCheckBox;
-          value = checkbox.isChecked();
-        } else if (fieldType === 'PDFDropdown' || fieldType === 'PDFDropdown2') {
-          const dropdown = field as PDFDropdown;
-          value = dropdown.getSelected();
-        } else if (fieldType === 'PDFRadioGroup' || fieldType === 'PDFRadioGroup2') {
-          const radioGroup = field as PDFRadioGroup;
-          value = radioGroup.getSelected();
-        }
+        const textField = field as PDFTextField;
+        const value = textField.getText();
 
         allFields[fieldName] = value;
 
         // Determine if field is filled or empty
-        const isFilled = value !== null && value !== undefined && value !== '' && value !== false;
+        const isFilled = value !== null && value !== undefined && value !== '';
         if (isFilled) {
           filledFields.push(fieldName);
         } else {
