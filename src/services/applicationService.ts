@@ -125,8 +125,7 @@ export const createDraft = async (
 
 // Convert draft application to normal application and start processing
 export const convertDraftToApplication = async (
-  applicationId: string,
-  updatedData: Partial<SBAApplicationData>
+  applicationId: string
 ): Promise<{ response: ApplicationResponse; userType: 'owner' | 'buyer' }> => {
   try {
     await initializeDirectories();
@@ -145,24 +144,17 @@ export const convertDraftToApplication = async (
     // Preserve the original user type from the draft
     const originalUserType = application.applicantData.userType;
 
-    // Merge updated data with existing applicant data, but preserve userType
-    application.applicantData = {
-      ...application.applicantData,
-      ...updatedData,
-      userType: originalUserType // Explicitly preserve the original userType
-    };
-
-    // Update status to submitted
+    // Update status to submitted (no data changes, use existing draft data)
     application.status = ApplicationStatus.SUBMITTED;
     await application.save();
 
-    // Start async processing
+    // Start async processing with existing draft data
     processApplicationAsync(application);
 
     return {
       response: {
         status: ApplicationStatus.SUBMITTED,
-        message: 'Draft application converted and submitted successfully. Documents are being prepared and will be sent to the bank shortly.'
+        message: 'Draft application converted successfully and is now being processed'
       },
       userType: originalUserType
     };
@@ -711,6 +703,96 @@ export const markUnsignedDocumentAsSigned = async (
     application.status = ApplicationStatus.AWAITING_SIGNATURE;
     application.signingStatus = 'pending';
   }
+
+  await application.save();
+
+  return application;
+};
+
+export const markDraftDocumentAsSigned = async (
+  applicationId: string,
+  options: {
+    fileName?: string;
+    s3Key?: string;
+    signedBy?: string;
+    signingProvider?: string;
+    signingRequestId?: string;
+    signedAt?: string | Date;
+    signedS3Key?: string;
+    signedS3Url?: string;
+  }
+): Promise<SBAApplication> => {
+  const {
+    fileName,
+    s3Key,
+    signedBy,
+    signingProvider,
+    signingRequestId,
+    signedAt,
+    signedS3Key,
+    signedS3Url
+  } = options;
+
+  if (!fileName && !s3Key) {
+    throw new Error('Document identifier (fileName or s3Key) is required');
+  }
+
+  const application = await Application.findById(applicationId);
+
+  if (!application) {
+    throw new Error('Application not found');
+  }
+
+  if (!application.draftDocuments || application.draftDocuments.length === 0) {
+    throw new Error('No draft documents found');
+  }
+
+  const draftIndex = application.draftDocuments.findIndex((doc: any) => {
+    if (s3Key && doc.s3Key === s3Key) {
+      return true;
+    }
+
+    if (fileName && doc.fileName === fileName) {
+      return true;
+    }
+
+    return false;
+  });
+
+  if (draftIndex === -1) {
+    throw new Error('Draft document not found');
+  }
+
+  // Update the signed field to true
+  (application.draftDocuments[draftIndex] as any).signed = true;
+
+  // Optionally update S3 key/url if new signed versions are provided
+  if (signedS3Key) {
+    (application.draftDocuments[draftIndex] as any).s3Key = signedS3Key;
+  }
+  if (signedS3Url) {
+    (application.draftDocuments[draftIndex] as any).s3Url = signedS3Url;
+  }
+
+  application.markModified('draftDocuments');
+
+  // Update signing metadata
+  if (signedBy) {
+    application.signedBy = signedBy;
+  }
+
+  if (signingProvider) {
+    application.signingProvider = signingProvider as any;
+  }
+
+  if (signingRequestId) {
+    application.signingRequestId = signingRequestId;
+  }
+
+  // Update signing status and date
+  const signedAtValue = signedAt ? new Date(signedAt) : new Date();
+  application.signingStatus = 'completed';
+  application.signedDate = signedAtValue;
 
   await application.save();
 

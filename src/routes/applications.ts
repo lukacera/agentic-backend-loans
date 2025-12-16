@@ -9,6 +9,7 @@ import {
   getApplications,
   handleSignedDocuments,
   markUnsignedDocumentAsSigned,
+  markDraftDocumentAsSigned,
   deleteSignedDocument,
   submitApplicationToBank,
   addUserProvidedDocuments,
@@ -613,193 +614,46 @@ router.patch('/:applicationId/draft', upload.single('document'), async (req, res
 router.patch('/:applicationId/convert', async (req, res) => {
   try {
     const { applicationId } = req.params;
-    const { name, businessName, businessPhone, creditScore, yearFounded }: ApplicationSubmissionRequest = req.body;
 
-    // Validate required fields for conversion
-    if (!name || !businessName || !yearFounded) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields: name, businessName, and yearFounded are required'
-      });
-    }
+    // Find the draft application
+    const application = await Application.findById(applicationId);
 
-    // Validate field types and formats
-    if (typeof name !== 'string' || name.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Name must be a non-empty string'
-      });
-    }
-
-    if (typeof businessName !== 'string' || businessName.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Business name must be a non-empty string'
-      });
-    }
-
-    if (yearFounded < 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Years in business must be a positive number'
-      });
-    }
-
-    // Get the draft application to determine user type
-    const draftApplication = await Application.findById(applicationId);
-
-    if (!draftApplication) {
+    if (!application) {
       return res.status(404).json({
         success: false,
         error: 'Application not found'
       });
     }
 
-    if (draftApplication.status !== ApplicationStatus.DRAFT) {
+    if (application.status !== ApplicationStatus.DRAFT) {
       return res.status(400).json({
         success: false,
-        error: `Application is not in draft status. Current status: ${draftApplication.status}`
+        error: `Application is not in draft status. Current status: ${application.status}`
       });
     }
 
-    // Use the user type from the draft application (not from request body)
-    const userType = draftApplication.applicantData.userType;
+    // Check that both required documents exist
+    const hasTaxReturn = application.userProvidedDocuments.some(
+      doc => doc.fileType === UserProvidedDocumentType.TAX_RETURN
+    );
 
-    const updatedData: Partial<SBAApplicationData> = {
-      name: name.trim(),
-      businessName: businessName.trim(),
-      businessPhoneNumber: businessPhone?.trim() || '',
-      creditScore,
-      yearFounded,
-      isUSCitizen: req.body.isUSCitizen === true
-      // userType is NOT included here - it will be preserved from the draft
-    };
+    const hasLandP = application.userProvidedDocuments.some(
+      doc => doc.fileType === UserProvidedDocumentType.L_AND_P
+    );
 
-    if (typeof req.body.annualRevenue === 'number') {
-      updatedData.annualRevenue = req.body.annualRevenue;
-    } else if (req.body.annualRevenue !== undefined && req.body.annualRevenue !== null) {
-      const parsedAnnualRevenue = Number(req.body.annualRevenue);
-      if (!Number.isNaN(parsedAnnualRevenue)) {
-        updatedData.annualRevenue = parsedAnnualRevenue;
-      }
+    if (!hasTaxReturn || !hasLandP) {
+      const missingDocs = [];
+      if (!hasTaxReturn) missingDocs.push('Tax Return');
+      if (!hasLandP) missingDocs.push('L&P (Profit & Loss)');
+
+      return res.status(400).json({
+        success: false,
+        error: `Missing required documents: ${missingDocs.join(', ')}. Please upload both documents before converting.`
+      });
     }
 
-    // Validate and add type-specific fields
-    if (userType === 'owner') {
-      const ownerFieldConfigs: Array<{ key: string; type: 'numeric' | 'string' }> = [
-        { key: 'monthlyRevenue', type: 'numeric' },
-        { key: 'monthlyExpenses', type: 'numeric' },
-        { key: 'existingDebtPayment', type: 'numeric' },
-        { key: 'requestedLoanAmount', type: 'numeric' },
-        { key: 'loanPurpose', type: 'string' },
-        { key: 'creditScore', type: 'numeric' },
-        { key: 'yearFounded', type: 'numeric' }
-      ];
-
-      const ownerErrors: string[] = [];
-      const ownerValues: Record<string, string | number> = {};
-
-      for (const field of ownerFieldConfigs) {
-        const rawValue = req.body[field.key];
-
-        if (field.type === 'numeric') {
-          const normalized = normalizeNumericInput(rawValue);
-
-          if (!normalized.valid) {
-            ownerErrors.push(`Field ${field.key} is required and must be a valid number for owner applications`);
-            continue;
-          }
-
-          if (field.key === 'yearFounded') {
-            ownerValues[field.key] = normalized.numberValue ?? Number(normalized.stringValue as string);
-          } else {
-            ownerValues[field.key] = normalized.stringValue as string;
-          }
-
-        } else {
-          const normalized = normalizeNonEmptyString(rawValue);
-
-          if (!normalized.valid) {
-            ownerErrors.push(`Field ${field.key} is required for owner applications`);
-            continue;
-          }
-
-          ownerValues[field.key] = normalized.stringValue as string;
-        }
-      }
-
-      if (ownerErrors.length > 0) {
-        return res.status(400).json({
-          success: false,
-          error: ownerErrors.join('; ')
-        });
-      }
-
-      updatedData.monthlyRevenue = ownerValues.monthlyRevenue as string;
-      updatedData.monthlyExpenses = ownerValues.monthlyExpenses as string;
-      updatedData.existingDebtPayment = ownerValues.existingDebtPayment as string;
-      updatedData.requestedLoanAmount = ownerValues.requestedLoanAmount as string;
-      updatedData.loanPurpose = ownerValues.loanPurpose as string;
-      updatedData.creditScore = Number(ownerValues.creditScore);
-      updatedData.yearFounded = ownerValues.yearFounded as number;
-    } else {
-      const buyerFieldConfigs: Array<{ key: string; type: 'numeric' | 'string' }> = [
-        { key: 'purchasePrice', type: 'numeric' },
-        { key: 'availableCash', type: 'numeric' },
-        { key: 'businessCashFlow', type: 'numeric' },
-        { key: 'industryExperience', type: 'string' },
-        { key: 'creditScore', type: 'numeric' },
-        { key: 'yearFounded', type: 'numeric' }
-      ];
-
-      const buyerErrors: string[] = [];
-      const buyerValues: Record<string, string | number> = {};
-
-      for (const field of buyerFieldConfigs) {
-        const rawValue = req.body[field.key];
-
-        if (field.type === 'numeric') {
-          const normalized = normalizeNumericInput(rawValue);
-
-          if (!normalized.valid) {
-            buyerErrors.push(`Field ${field.key} is required and must be a valid number for buyer applications`);
-            continue;
-          }
-
-          if (field.key === 'yearFounded') {
-            buyerValues[field.key] = normalized.numberValue ?? Number(normalized.stringValue as string);
-          } else {
-            buyerValues[field.key] = normalized.stringValue as string;
-          }
-
-        } else {
-          const normalized = normalizeNonEmptyString(rawValue);
-
-          if (!normalized.valid) {
-            buyerErrors.push(`Field ${field.key} is required for buyer applications`);
-            continue;
-          }
-
-          buyerValues[field.key] = normalized.stringValue as string;
-        }
-      }
-
-      if (buyerErrors.length > 0) {
-        return res.status(400).json({
-          success: false,
-          error: buyerErrors.join('; ')
-        });
-      }
-
-      updatedData.purchasePrice = buyerValues.purchasePrice as string;
-      updatedData.availableCash = buyerValues.availableCash as string;
-      updatedData.businessCashFlow = buyerValues.businessCashFlow as string;
-      updatedData.industryExperience = buyerValues.industryExperience as string;
-      updatedData.creditScore = Number(buyerValues.creditScore);
-      updatedData.yearFounded = buyerValues.yearFounded as number;
-    }
-
-    const { response, userType: preservedUserType } = await convertDraftToApplication(applicationId, updatedData);
+    // Convert draft to full application (no data changes, just status update)
+    const { response } = await convertDraftToApplication(applicationId);
 
     res.status(200).json({
       success: true,
@@ -926,12 +780,12 @@ router.get('/:applicationId', async (req, res) => {
     
     const application = await Application.findById(applicationId)
       .populate({
-      path: 'banks.bank',
-      model: 'Bank',
+        path: 'banks.bank',
+        model: 'Bank'
       })
       .populate({
-      path: 'offers.bank',
-      model: 'Bank',
+        path: 'offers.bank',
+        model: 'Bank'
       })
       .exec();
 
@@ -986,7 +840,8 @@ router.get('/:applicationId', async (req, res) => {
           url: await generatePresignedUrl(doc.s3Key, expiresIn),
           generatedAt: doc.generatedAt,
           fileType: doc.fileType,
-          expiresIn
+          expiresIn,
+          signed: doc.signed || false
         }))
       )
     ]);
@@ -1482,6 +1337,68 @@ router.post('/:applicationId/documents/unsigned/mark-signed', async (req, res) =
     });
   }
 });
+
+router.post('/:applicationId/documents/draft/mark-signed', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const {
+      fileName,
+      s3Key,
+      signedBy,
+      signingProvider,
+      signingRequestId,
+      signedAt,
+      signedS3Key,
+      signedS3Url
+    } = req.body ?? {};
+
+    if (!fileName && !s3Key) {
+      return res.status(400).json({
+        success: false,
+        error: 'fileName or s3Key is required to mark a document as signed'
+      });
+    }
+
+    const application = await markDraftDocumentAsSigned(applicationId, {
+      fileName,
+      s3Key,
+      signedBy,
+      signingProvider,
+      signingRequestId,
+      signedAt,
+      signedS3Key,
+      signedS3Url
+    });
+
+    res.json({
+      success: true,
+      data: {
+        applicationId,
+        status: application.status,
+        draftDocuments: application.draftDocuments,
+        signingStatus: application.signingStatus,
+        signedDate: application.signedDate
+      }
+    });
+
+  } catch (error) {
+    console.error('Error marking draft document as signed:', error);
+
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    const statusCode =
+      message === 'Application not found' || message === 'Draft document not found' || message === 'No draft documents found'
+        ? 404
+        : message === 'Document identifier (fileName or s3Key) is required'
+          ? 400
+          : 500;
+
+    res.status(statusCode).json({
+      success: false,
+      error: message
+    });
+  }
+});
+
 
 // POST /api/applications/:applicationId/documents/signed - Upload signed documents
 router.post('/:applicationId/documents/signed', upload.array('documents', 10), async (req, res) => {
