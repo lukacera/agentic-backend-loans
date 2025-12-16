@@ -315,6 +315,7 @@ export interface DocumentStorageInfo {
   signedAt?: Date;
   fileType: UserProvidedDocumentType | DefaultDocumentType;
   signed?: boolean;
+  generatedAt?: Date;
 }
 
 export enum BankSubmissionStatus {
