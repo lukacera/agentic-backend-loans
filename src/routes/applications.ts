@@ -30,9 +30,10 @@ import {
   SBAApplicationData
 } from '../types/index.js';
 import { Application } from '../models/Application.js';
-import { generatePresignedUrl, uploadDocumentWithRetry } from '../services/s3Service.js';
+import { generatePresignedUrl, uploadDocumentWithRetry, downloadDocument } from '../services/s3Service.js';
 import { formatApplicationStatus } from '../utils/formatters.js';
 import websocketService from '../services/websocket.js';
+import { extractFormFieldValues } from '../services/pdfFormProcessor.js';
 
 const router = express.Router();
 
@@ -1241,6 +1242,78 @@ router.get('/:applicationId/documents/draft', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching draft documents:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// GET /api/applications/:applicationId/documents/:formName/fields - Extract filled/empty fields from PDF
+router.get('/:applicationId/documents/:formName/fields', async (req, res) => {
+  try {
+    const { applicationId, formName } = req.params;
+    const { documentType } = req.query; // 'draft', 'unsigned', or 'signed'
+
+    if (!documentType || !['draft', 'unsigned', 'signed'].includes(documentType as string)) {
+      return res.status(400).json({
+        success: false,
+        error: 'documentType query parameter is required and must be one of: draft, unsigned, signed'
+      });
+    }
+
+    const application = await Application.findById(applicationId);
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found'
+      });
+    }
+
+    // Find the document based on documentType and formName
+    let document: any = null;
+
+    if (documentType === 'draft') {
+      document = application.draftDocuments?.find(
+        (doc: any) => doc.fileType === formName || doc.fileName?.includes(formName)
+      );
+    } else if (documentType === 'unsigned') {
+      document = application.unsignedDocuments?.find(
+        (doc: any) => doc.fileName?.includes(formName)
+      );
+    } else if (documentType === 'signed') {
+      document = application.signedDocuments?.find(
+        (doc: any) => doc.fileName?.includes(formName)
+      );
+    }
+
+    if (!document) {
+      return res.status(404).json({
+        success: false,
+        error: `Document '${formName}' not found in ${documentType} documents`
+      });
+    }
+
+    // Download PDF from S3
+    const pdfBuffer = await downloadDocument(document.s3Key);
+
+    // Extract field values
+    const { filledFields, emptyFields, allFields } = await extractFormFieldValues(pdfBuffer);
+
+    res.json({
+      success: true,
+      data: {
+        applicationId,
+        formName,
+        documentType,
+        filledFields,
+        emptyFields,
+        allFields
+      }
+    });
+  } catch (error) {
+    console.error('Error extracting PDF form fields:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error'

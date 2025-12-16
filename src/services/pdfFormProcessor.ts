@@ -300,3 +300,68 @@ const simpleFieldMapping = (formFields: PDFFormField[], userData: Record<string,
 
 // Import processWithLLM from BaseAgent
 import { processWithLLM } from '../agents/BaseAgent.js';
+
+// Extract form field values from PDF buffer (for reading filled fields)
+export const extractFormFieldValues = async (
+  pdfBuffer: Buffer
+): Promise<{
+  filledFields: string[];
+  emptyFields: string[];
+  allFields: Record<string, any>;
+}> => {
+  try {
+    const pdfDoc = await PDFDocument.load(pdfBuffer);
+    const form = pdfDoc.getForm();
+    const fields = form.getFields();
+
+    const filledFields: string[] = [];
+    const emptyFields: string[] = [];
+    const allFields: Record<string, any> = {};
+
+    for (const field of fields) {
+      const fieldName = field.getName();
+      let value: any = null;
+
+      try {
+        const fieldType = field.constructor.name;
+
+        if (fieldType === 'PDFTextField' || fieldType === 'PDFTextField2') {
+          const textField = field as PDFTextField;
+          value = textField.getText();
+        } else if (fieldType === 'PDFCheckBox' || fieldType === 'PDFCheckBox2') {
+          const checkbox = field as PDFCheckBox;
+          value = checkbox.isChecked();
+        } else if (fieldType === 'PDFDropdown' || fieldType === 'PDFDropdown2') {
+          const dropdown = field as PDFDropdown;
+          value = dropdown.getSelected();
+        } else if (fieldType === 'PDFRadioGroup' || fieldType === 'PDFRadioGroup2') {
+          const radioGroup = field as PDFRadioGroup;
+          value = radioGroup.getSelected();
+        }
+
+        allFields[fieldName] = value;
+
+        // Determine if field is filled or empty
+        const isFilled = value !== null && value !== undefined && value !== '' && value !== false;
+        if (isFilled) {
+          filledFields.push(fieldName);
+        } else {
+          emptyFields.push(fieldName);
+        }
+      } catch (fieldError) {
+        console.warn(`Could not read value from field ${fieldName}:`, fieldError);
+        allFields[fieldName] = null;
+        emptyFields.push(fieldName);
+      }
+    }
+
+    return {
+      filledFields,
+      emptyFields,
+      allFields
+    };
+  } catch (error) {
+    console.error('Error extracting form field values:', error);
+    throw new Error(`Failed to extract form field values: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+};
