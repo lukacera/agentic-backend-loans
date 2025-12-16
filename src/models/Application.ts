@@ -151,21 +151,6 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
       required: true
     }
   }],
-
-  // S3 Document Storage
-  unsignedDocuments: [{
-    fileName: { type: String, required: true },
-    s3Key: { type: String, required: true },
-    s3Url: { type: String },
-    uploadedAt: { type: Date, default: Date.now }
-  }],
-  signedDocuments: [{
-    fileName: { type: String, required: true },
-    s3Key: { type: String, required: true },
-    s3Url: { type: String },
-    uploadedAt: { type: Date, default: Date.now },
-    signedAt: { type: Date }
-  }],
   userProvidedDocuments: [{
     fileType: {
       type: String,
@@ -231,10 +216,7 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
   emailSent: {
     type: Boolean,
     default: false
-  },
-  generatedDocuments: [{
-    type: String
-  }]
+  }
 }, {
   timestamps: true, // Automatically adds createdAt and updatedAt
 });

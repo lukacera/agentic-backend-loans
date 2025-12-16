@@ -927,8 +927,8 @@ export const submitApplicationToBank = async (
       throw new Error('Application not found');
     }
 
-    if (application.signedDocuments.length === 0) {
-      throw new Error('No signed documents found');
+    if (application.draftDocuments && application.draftDocuments.some(doc => !doc.signed)) {
+      throw new Error('Some documents are not signed found');
     }
 
     // Get recommended banks based on applicant's credit score and years in business
@@ -944,17 +944,17 @@ export const submitApplicationToBank = async (
       throw new Error('No banks match the applicant requirements');
     }
 
-    // Download documents from S3 (signed + supporting)
-    const signedDocumentBuffers = await downloadDocumentsFromS3(
-      application.signedDocuments
-    );
 
     const userProvidedDocumentBuffers = application.userProvidedDocuments.length > 0
       ? await downloadDocumentsFromS3(application.userProvidedDocuments)
       : [];
 
+    const draftDocumentBuffers = application.draftDocuments && application.draftDocuments.length > 0
+      ? await downloadDocumentsFromS3(application.draftDocuments as DocumentStorageInfo[])
+      : [];
+
     const documentBuffers = [
-      ...signedDocumentBuffers,
+      ...draftDocumentBuffers,
       ...userProvidedDocumentBuffers
     ];
 
