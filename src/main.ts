@@ -831,7 +831,7 @@ app.post('/vapi-ai', async (req, res) => {
                 }
 
                 const pdfBuffer = await downloadDocument(document.s3Key);
-                const { filledFields, emptyFields, allFields } = await extractFormFieldValues(pdfBuffer);
+                const { filledFields, emptyFields } = await extractFormFieldValues(pdfBuffer);
 
                 // Store emptyFields in userDataStore for this call (used by captureHighlightField)
                 saveOrUpdateUserData(message.call?.id, {
@@ -841,23 +841,18 @@ app.post('/vapi-ai', async (req, res) => {
 
                 console.log(`📋 Retrieved filled fields for application ${applicationId}: ${filledFields.length} filled, ${emptyFields.length} empty`);
 
+                // Return as a simple string for Vapi
+                const filledFieldsStr = filledFields.join(', ');
+                const emptyFieldsStr = emptyFields.join(', ');
                 return {
                   toolCallId: toolCall.id,
-                  result: JSON.stringify({
-                    success: true,
-                    filledFields,
-                    emptyFields,
-                    allFields
-                  })
+                  result: `Filled fields: ${filledFieldsStr}. Empty fields: ${emptyFieldsStr}.`
                 };
               } catch (error) {
                 console.error('Error getting filled fields:', error);
                 return {
                   toolCallId: toolCall.id,
-                  result: JSON.stringify({
-                    success: false,
-                    error: error instanceof Error ? error.message : 'Failed to get filled fields'
-                  })
+                  result: `Error: ${error instanceof Error ? error.message : 'Failed to get filled fields'}`
                 };
               }
             }
