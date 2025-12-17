@@ -1130,7 +1130,7 @@ app.post('/vapi-ai', async (req, res) => {
   }
 });
 
-// Form field order for auto-highlighting next field
+// Form field order for auto-highlighting next field (Form 1919)
 const FORM_FIELD_ORDER = [
   "applicantname",
   "operatingnbusname",
@@ -1173,9 +1173,178 @@ const FORM_FIELD_ORDER = [
   "other2spec"
 ];
 
+// Form 413 (Personal Financial Statement) field order
+const FORM_413_FIELD_ORDER = [
+  // Personal Info (8 fields)
+  "Name",
+  "Business Phone xxx-xxx-xxxx",
+  "Home Address",
+  "Home Phone xxx-xxx-xxxx",
+  "City, State, & Zip Code",
+  "Business Name of Applicant/Borrower",
+  "Business Address (if different than home address)",
+  "This information is current as of month/day/year",
+
+  // Assets (10 fields - TotalAssets auto-calculated)
+  "Cash on Hand & in banks",
+  "Savings Accounts",
+  "IRA or Other Retirement Account",
+  "Accounts and Notes Receivable",
+  "Life Insurance - Cash Surrender Value Only",
+  "Stocks and Bonds",
+  "Real Estate",
+  "Automobiles",
+  "Other Personal Property",
+  "Other Assets",
+
+  // Liabilities (10 fields - TotalLiabilities/Net Worth auto-calculated)
+  "Accounts Payable",
+  "Notes Payable to Banks and Others",
+  "Installment Account (Auto)",
+  "Installment Account - Monthly Payments (Auto)",
+  "Installment Account (Other)",
+  "Installment Account - Monthly Payments (Other)",
+  "Loan(s) Against Life Insurance",
+  "Mortgages on Real Estate",
+  "Unpaid Taxes",
+  "Other Liabilities",
+
+  // Income (4 fields)
+  "Salary",
+  "Net Investment Income",
+  "Real Estate Income",
+  "Other Income",
+
+  // Contingent Liabilities (4 fields)
+  "As Endorser or Co-Maker",
+  "Legal Claims and Judgements",
+  "Provision for Federal Income Tax",
+  "Other Special Debt",
+
+  // Description fields (5 fields)
+  "Description of Other Income in Section 1: Alimony or child support payments should not be disclosed in Other Income unless it is desired to have such payments counted toward total incomeRow1",
+  "Section 5  Other Personal Property and Other Assets: Describe and if any is pledged as security state name and address of lien holder amount of lien terms of payment and if delinquent describe delinquencyRow1",
+  "Section 6 Unpaid Taxes Describe in detail as to type to whom payable when due amount and to what property if any a tax lien attachesRow1",
+  "Section 7 Other Liabilities Describe in detailRow1",
+  "Section 8 Life Insurance Held Give face amount and cash surrender value of policies  name of insurance company and BeneficiariesRow1",
+
+  // Signatures (6 fields)
+  "Date",
+  "Print Name",
+  "Social Security No",
+  "Date2",
+  "Print Name_2",
+  "Social Security No_2"
+];
+
+// Form 413 table field templates for repeating sections
+const FORM_413_TABLES = {
+  notesPayable: {
+    rowCount: 5,
+    suffix: "Row", // Field names end with "Row1", "Row2", etc.
+    fields: [
+      "Names and Addresses of Noteholders",
+      "Original Balance",
+      "Current Balance",
+      "Payment Amount",
+      "Frequency monthly etc",
+      "How Secured or Endorsed Type of Collateral"
+    ]
+  },
+  stocksBonds: {
+    rowCount: 4,
+    suffix: "Row",
+    fields: [
+      "Number of Shares",
+      "Name of Securities",
+      "Cost",
+      "Market Value QuotationExchange",
+      "Date of QuotationExchange",
+      "Total Value"
+    ]
+  },
+  realEstate: {
+    rowCount: 3,
+    prefix: "Property ", // Field names start with "Property A", "Property B", "Property C"
+    properties: ["A", "B", "C"],
+    fields: [
+      "Type of Real Estate eg Primary Residence Other Residence Rental Property Land etc",
+      "Address",
+      "Date Purchased_es_:date",
+      "Original Cost",
+      "Present Market Value",
+      "Name  Address of Mortgage Holder",
+      "Mortgage Account Number",
+      "Mortgage Balance",
+      "Amount of Payment per MonthYear",
+      "Status of Mortgage"
+    ]
+  }
+};
+
+// Form 413 asset fields for auto-calculation
+const FORM_413_ASSET_FIELDS = [
+  "Cash on Hand & in banks",
+  "Savings Accounts",
+  "IRA or Other Retirement Account",
+  "Accounts and Notes Receivable",
+  "Life Insurance - Cash Surrender Value Only",
+  "Stocks and Bonds",
+  "Real Estate",
+  "Automobiles",
+  "Other Personal Property",
+  "Other Assets"
+];
+
+// Form 413 liability fields for auto-calculation
+const FORM_413_LIABILITY_FIELDS = [
+  "Accounts Payable",
+  "Notes Payable to Banks and Others",
+  "Installment Account (Auto)",
+  "Installment Account (Other)",
+  "Loan(s) Against Life Insurance",
+  "Mortgages on Real Estate",
+  "Unpaid Taxes",
+  "Other Liabilities"
+];
+
 // Helper function to save or update user data
 // This maintains one record per call and updates it as data comes in
 const userDataStore = new Map(); // In-memory store (use database in production)
+
+// Calculate Form 413 totals (assets, liabilities, net worth)
+function calculateForm413Totals(callId: string | undefined, fieldName: string): Record<string, number> {
+  const userData = getUserData(callId);
+  if (!userData) return {};
+
+  const calculations: Record<string, number> = {};
+
+  if (FORM_413_ASSET_FIELDS.includes(fieldName)) {
+    const totalAssets = FORM_413_ASSET_FIELDS.reduce((sum, f) => sum + (parseFloat(userData[f]) || 0), 0);
+    calculations["TotalAssets"] = totalAssets;
+    saveOrUpdateUserData(callId, { "TotalAssets": totalAssets });
+
+    // Recalculate net worth if liabilities exist
+    const totalLiabilities = userData["TotalLiabilities"] || 0;
+    if (totalLiabilities > 0) {
+      calculations["Net Worth"] = totalAssets - totalLiabilities;
+      saveOrUpdateUserData(callId, { "Net Worth": totalAssets - totalLiabilities });
+    }
+  }
+
+  if (FORM_413_LIABILITY_FIELDS.includes(fieldName)) {
+    const totalLiabilities = FORM_413_LIABILITY_FIELDS.reduce((sum, f) => sum + (parseFloat(userData[f]) || 0), 0);
+    const totalAssets = userData["TotalAssets"] || 0;
+    calculations["TotalLiabilities"] = totalLiabilities;
+    calculations["Net Worth"] = totalAssets - totalLiabilities;
+    saveOrUpdateUserData(callId, {
+      "TotalLiabilities": totalLiabilities,
+      "Net Worth": totalAssets - totalLiabilities
+    });
+  }
+
+  return calculations;
+}
 
 function saveOrUpdateUserData(callId: string | undefined, data: any) {
   if (!callId) {
