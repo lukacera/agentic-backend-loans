@@ -955,6 +955,49 @@ app.post('/vapi-ai', async (req, res) => {
               };
             }
 
+            case 'captureCheckboxSelection': {
+              const { group, value } = functionArgs as { group?: string; value?: string };
+              console.log('Checkbox capture args:', { group, value });
+              if (!group || !value) {
+                console.log('⚠️ Missing group or value for checkbox capture');
+                return {
+                  toolCallId: toolCall.id,
+                  result: JSON.stringify({
+                    success: false,
+                    error: 'Both group and value are required'
+                  })
+                };
+              }
+
+              console.log(`📋 Capturing checkbox selection: ${group} = ${value}`);
+
+              // Store in userDataStore
+              saveOrUpdateUserData(message.call?.id, {
+                [`checkbox_${group}`]: value
+              });
+
+              // Broadcast to WebSocket
+              websocketService.broadcast(
+                'checkbox-selection',
+                {
+                  callId: message.call?.id,
+                  timestamp: new Date().toISOString(),
+                  fields: { [`checkbox_${group}`]: value },
+                  source: 'toolfn-call',
+                  fieldType: 'checkbox'
+                },
+                rooms
+              );
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: `Captured ${group}: ${value}`
+                })
+              };
+            }
+
             default:
               console.warn(`⚠️ Unknown function: ${functionName}`);
               return {

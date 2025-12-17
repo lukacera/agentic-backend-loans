@@ -386,28 +386,45 @@ export const extractFormFieldValues = async (
       const fieldName = field.getName();
       const fieldType = field.constructor.name;
 
-      // Only process text fields
-      if (fieldType !== 'PDFTextField' && fieldType !== 'PDFTextField2') {
-        continue;
-      }
+      // Process text fields
+      if (fieldType === 'PDFTextField' || fieldType === 'PDFTextField2') {
+        try {
+          const textField = field as PDFTextField;
+          const value = textField.getText();
 
-      try {
-        const textField = field as PDFTextField;
-        const value = textField.getText();
+          allFields[fieldName] = value;
 
-        allFields[fieldName] = value;
-
-        // Determine if field is filled or empty
-        const isFilled = value !== null && value !== undefined && value !== '';
-        if (isFilled) {
-          filledFields.push(fieldName);
-        } else {
+          // Determine if field is filled or empty
+          const isFilled = value !== null && value !== undefined && value !== '';
+          if (isFilled) {
+            filledFields.push(fieldName);
+          } else {
+            emptyFields.push(fieldName);
+          }
+        } catch (fieldError) {
+          console.warn(`Could not read value from field ${fieldName}:`, fieldError);
+          allFields[fieldName] = null;
           emptyFields.push(fieldName);
         }
-      } catch (fieldError) {
-        console.warn(`Could not read value from field ${fieldName}:`, fieldError);
-        allFields[fieldName] = null;
-        emptyFields.push(fieldName);
+      }
+      // Process checkboxes
+      else if (fieldType === 'PDFCheckBox' || fieldType === 'PDFCheckBox2') {
+        try {
+          const checkbox = field as PDFCheckBox;
+          const isChecked = checkbox.isChecked();
+
+          allFields[fieldName] = isChecked;
+
+          if (isChecked) {
+            filledFields.push(fieldName);
+          } else {
+            emptyFields.push(fieldName);
+          }
+        } catch (fieldError) {
+          console.warn(`Could not read checkbox value from field ${fieldName}:`, fieldError);
+          allFields[fieldName] = false;
+          emptyFields.push(fieldName);
+        }
       }
     }
 

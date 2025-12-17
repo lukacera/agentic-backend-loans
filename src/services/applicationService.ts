@@ -13,14 +13,14 @@ import {
 } from '../types/index.js';
 import { sendEmail } from './emailSender.js';
 import { composeEmail, createEmailAgent } from '../agents/EmailAgent.js';
-import { createDocumentAgent } from '../agents/DocumentAgent.js';
-import { fillPDFForm, mapDataWithAI, extractFormFields } from './pdfFormProcessor.js';
+import { fillPDFForm, fillCheckboxGroup } from './pdfFormProcessor.js';
 import {
   uploadDocumentWithRetry,
   downloadDocument,
   deleteDocument
 } from './s3Service.js';
 import { recommendBank } from './bankService.js';
+import { PDFDocument } from 'pdf-lib';
 
 // SBA Eligibility Calculator Interfaces
 interface SBAEligibilityRequestBuyer {
@@ -281,11 +281,38 @@ export const generateDraftPDFs = async (
           formData,
           outputFileName
         );
-        
+
         if (fillResult.success && fillResult.outputPath) {
+          // Extract checkbox selections from applicantData
+          const checkboxData: Record<string, string> = {};
+          for (const [key, value] of Object.entries(applicantData)) {
+            if (key.startsWith('checkbox_') && typeof value === 'string') {
+              const group = key.replace('checkbox_', '');
+              checkboxData[group] = value;
+            }
+          }
+
+          // Fill checkboxes if any were provided
+          if (Object.keys(checkboxData).length > 0) {
+
+            const pdfBytes = await fs.readFile(fillResult.outputPath);
+            const pdfDoc = await PDFDocument.load(pdfBytes);
+            const form = pdfDoc.getForm();
+
+            for (const [group, value] of Object.entries(checkboxData)) {
+              const success = fillCheckboxGroup(form, group, value);
+              if (success) {
+                console.log(`✅ Filled checkbox group "${group}" with value "${value}" in ${formName}`);
+              }
+            }
+
+            const updatedPdfBytes = await pdfDoc.save();
+            await fs.writeFile(fillResult.outputPath, updatedPdfBytes);
+          }
+
           const fileBuffer = await fs.readFile(fillResult.outputPath);
           const s3Key = `drafts/${draftApplicationId}/${formName}`;
-          
+
           const s3Result = await uploadDocumentWithRetry(
             draftApplicationId,
             formName,
