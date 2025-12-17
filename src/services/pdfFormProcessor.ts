@@ -18,6 +18,7 @@ const GENERATED_DIR = path.join(process.cwd(), 'generated');
 export const CHECKBOX_GROUPS: Record<string, {
   description: string;
   options: Record<string, string>; // user value -> PDF field name
+  exclusive?: boolean; // true if only one can be selected at a time
 }> = {
   entity: {
     description: "Type of business entity",
@@ -28,7 +29,8 @@ export const CHECKBOX_GROUPS: Record<string, {
       "Partnership": "partnership",
       "Sole Proprietor": "soleprop",
       "Other": "etother"
-    }
+    },
+    exclusive: true
   },
   specialOwnershipType: {
     description: "Special ownership type (multiple checkboxes can be selected)",
@@ -39,6 +41,7 @@ export const CHECKBOX_GROUPS: Record<string, {
       "Native American Tribe": "ownNATribe",
       "Other": "ownOther"
     }
+    // Not exclusive
   },
   veteranStatus: {
     description: "Veteran status",
@@ -48,14 +51,16 @@ export const CHECKBOX_GROUPS: Record<string, {
       "Service-Disabled Veteran": "statVetSp",
       "Veteran with Disability": "statVetD",
       "Veteran without Disability": "statVetND"
-    }
+    },
+    exclusive: true
   },
   sex: {
     description: "Sex",
     options: {
       "Male": "male",
       "Female": "female"
-    }
+    },
+    exclusive: true
   },
   race: {
     description: "Race",
@@ -66,7 +71,8 @@ export const CHECKBOX_GROUPS: Record<string, {
       "Native Hawaiian or Other Pacific Islander": "raceNHPI",
       "White": "raceWhite",
       "Not Disclosed": "raceND"
-    }
+    },
+    exclusive: true
   },
   ethnicity: {
     description: "Ethnicity",
@@ -74,9 +80,21 @@ export const CHECKBOX_GROUPS: Record<string, {
       "Hispanic or Latino": "ethHisp",
       "Not Hispanic or Latino": "ethNot",
       "Not Disclosed": "ethND"
-    }
+    },
+    exclusive: true
   }
 };
+
+/**
+ * Returns all checkbox field names in a group
+ * @param group - The checkbox group name
+ * @returns string[] of all field names in the group
+ */
+export function getGroupCheckboxes(group: string): string[] {
+  const groupConfig = CHECKBOX_GROUPS[group];
+  if (!groupConfig) return [];
+  return Object.values(groupConfig.options);
+}
 
 export const initializePDFDirectories = async (): Promise<void> => {
   await fs.ensureDir(TEMPLATES_DIR);

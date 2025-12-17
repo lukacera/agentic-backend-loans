@@ -16,7 +16,7 @@ import websocketService from './services/websocket.js';
 import { VapiClient } from "@vapi-ai/server-sdk"
 import { Application } from './models/Application.js';
 import { downloadDocument } from './services/s3Service.js';
-import { extractFormFieldValues } from './services/pdfFormProcessor.js';
+import { extractFormFieldValues, CHECKBOX_GROUPS, getGroupCheckboxes } from './services/pdfFormProcessor.js';
 
 // Load environment variables
 dotenv.config();
@@ -956,8 +956,16 @@ app.post('/vapi-ai', async (req, res) => {
             }
 
             case 'captureCheckboxSelection': {
-              const { group, value } = functionArgs as { group?: string; value?: string };
-              console.log('Checkbox capture args:', { group, value });
+              let { group, value } = functionArgs as { group?: string; value?: string };
+              console.log('Checkbox capture args (raw):', { group, value });
+
+              // Normalize: trim whitespace and newlines
+              group = group?.trim();
+              value = value?.trim();
+
+              console.log('Checkbox capture args (normalized):', { group, value });
+
+              // Validate required parameters
               if (!group || !value) {
                 console.log('⚠️ Missing group or value for checkbox capture');
                 return {
@@ -969,12 +977,48 @@ app.post('/vapi-ai', async (req, res) => {
                 };
               }
 
-              console.log(`📋 Capturing checkbox selection: ${group} = ${value}`);
+              // Validate group exists in CHECKBOX_GROUPS
+              const groupConfig = CHECKBOX_GROUPS[group];
+              if (!groupConfig) {
+                console.log(`⚠️ Unknown checkbox group: ${group}`);
+                return {
+                  toolCallId: toolCall.id,
+                  result: JSON.stringify({
+                    success: false,
+                    error: `Unknown checkbox group: ${group}. Available groups: ${Object.keys(CHECKBOX_GROUPS).join(', ')}`
+                  })
+                };
+              }
 
-              // Store in userDataStore
+              // Validate value exists in group options
+              const fieldName = groupConfig.options[value];
+              if (!fieldName) {
+                console.log(`⚠️ Unknown value '${value}' for group '${group}'`);
+                return {
+                  toolCallId: toolCall.id,
+                  result: JSON.stringify({
+                    success: false,
+                    error: `Unknown value '${value}' for group '${group}'. Available values: ${Object.keys(groupConfig.options).join(', ')}`
+                  })
+                };
+              }
+
+              console.log(`📋 Capturing checkbox selection: ${group} = ${value} -> field: ${fieldName}`);
+
+              // Store PDF field name in userDataStore
               saveOrUpdateUserData(message.call?.id, {
-                [`checkbox_${group}`]: value
+                [fieldName]: true
               });
+
+              // Get all checkboxes in group for exclusive groups
+              let groupCheckboxes: string[] | undefined = undefined;
+              if (groupConfig.exclusive) {
+                groupCheckboxes = getGroupCheckboxes(group);
+                console.log(`📋 Exclusive group - all checkboxes:`, groupCheckboxes);
+              }
+
+              console.log("message call id:", message.call?.id);
+              console.log("broadcasting to rooms:", rooms);
 
               // Broadcast to WebSocket
               websocketService.broadcast(
@@ -982,9 +1026,10 @@ app.post('/vapi-ai', async (req, res) => {
                 {
                   callId: message.call?.id,
                   timestamp: new Date().toISOString(),
-                  fields: { [`checkbox_${group}`]: value },
-                  source: 'toolfn-call',
-                  fieldType: 'checkbox'
+                  fields: { [fieldName]: true },
+                  fieldType: 'checkbox',
+                  groupCheckboxes,
+                  source: 'toolfn-call'
                 },
                 rooms
               );
@@ -993,7 +1038,7 @@ app.post('/vapi-ai', async (req, res) => {
                 toolCallId: toolCall.id,
                 result: JSON.stringify({
                   success: true,
-                  message: `Captured ${group}: ${value}`
+                  message: `Captured ${group}: ${value} (field: ${fieldName})`
                 })
               };
             }
@@ -1124,8 +1169,6 @@ function saveOrUpdateUserData(callId: string | undefined, data: any) {
   
   userDataStore.set(callId, updated);
   
-  console.log('💾 Saved user data:', updated);
-  
   // TODO: Save to actual database
   // await UserData.updateOne({ callId }, updated, { upsert: true });
   
@@ -1152,14 +1195,14 @@ app.post('/api/chat', async (req, res) => {
     }
 
     const response = await processQuery(message);
-    
-    res.json({ 
+
+    res.json({
       response,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
     console.error('Chat endpoint error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Internal server error',
       message: 'Failed to process your request'
     });
