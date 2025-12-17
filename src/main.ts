@@ -314,10 +314,14 @@ app.post('/vapi-ai', async (req, res) => {
 
     const messageType = message.type;
 
+    // Helper function to get call/chat ID with fallback
+    const getCallId: () => string | undefined = () => message.call?.id || message.chat?.id;
+    const callId = "lukahim"
+
     // Determine which rooms to broadcast to
     const rooms: string[] = ['global'];
-    if (message.call?.id) {
-      rooms.push(`${message.call.id}`);
+    if (callId) {
+      rooms.push(`${callId}`);
     }
 
     // Broadcast event to WebSocket clients
@@ -374,10 +378,10 @@ app.post('/vapi-ai', async (req, res) => {
           switch (normalizedFunctionName) {
             case 'captureUserName': {
               const { name } = functionArgs as { name?: string };
-              saveOrUpdateUserData(message.call?.id, { name });
+              saveOrUpdateUserData(callId, { name });
               
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { userName: name },
                 source: 'toolfn-call'
@@ -394,10 +398,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureBusinessName': {
               const { businessName } = functionArgs as { businessName?: string };
-              saveOrUpdateUserData(message.call?.id, { businessName });
+              saveOrUpdateUserData(callId, { businessName });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { businessName },
                 source: 'toolfn-call'
@@ -420,7 +424,7 @@ app.post('/vapi-ai', async (req, res) => {
               };
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { loanAmount, loanType, loanPurpose },
                 source: 'toolfn-call'
@@ -437,10 +441,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureAnnualRevenue': {
               const { annualRevenue } = functionArgs as { annualRevenue?: number };
-              saveOrUpdateUserData(message.call?.id, { annualRevenue });
+              saveOrUpdateUserData(callId, { annualRevenue });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { annualRevenue },
                 source: 'toolfn-call'
@@ -457,10 +461,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureBusinessCashFlow': {
               const { businessCashFlow } = functionArgs as { businessCashFlow?: number };
-              saveOrUpdateUserData(message.call?.id, { businessCashFlow });
+              saveOrUpdateUserData(callId, { businessCashFlow });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { businessCashFlow },
                 source: 'toolfn-call'
@@ -477,10 +481,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureIndustryExperience': {
               const { industryExperience } = functionArgs as { industryExperience?: string };
-              saveOrUpdateUserData(message.call?.id, { industryExperience });
+              saveOrUpdateUserData(callId, { industryExperience });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { industryExperience },
                 source: 'toolfn-call'
@@ -497,10 +501,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureBusinessPhone': {
               const { businessPhone } = functionArgs as { businessPhone?: string };
-              saveOrUpdateUserData(message.call?.id, { businessPhone });
+              saveOrUpdateUserData(callId, { businessPhone });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { businessPhone },
                 source: 'toolfn-call'
@@ -517,10 +521,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureCreditScore': {
               const { creditScore } = functionArgs as { creditScore?: number };
-              saveOrUpdateUserData(message.call?.id, { creditScore });
+              saveOrUpdateUserData(callId, { creditScore });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { creditScore },
                 source: 'toolfn-call'
@@ -537,10 +541,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureYearFounded': {
               const { yearFounded } = functionArgs as { yearFounded?: number };
-              saveOrUpdateUserData(message.call?.id, { yearFounded });
+              saveOrUpdateUserData(callId, { yearFounded });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { yearFounded },
                 source: 'toolfn-call'
@@ -557,10 +561,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureUSCitizen': {
               const { usCitizen } = functionArgs as { usCitizen?: boolean | string };
-              saveOrUpdateUserData(message.call?.id, { usCitizen });
+              saveOrUpdateUserData(callId, { usCitizen });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { usCitizen },
                 source: 'toolfn-call'
@@ -577,10 +581,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureLoanPurpose': {
               const { loanPurpose } = functionArgs as { loanPurpose?: string | string[] };
-              saveOrUpdateUserData(message.call?.id, { loanPurpose });
+              saveOrUpdateUserData(callId, { loanPurpose });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { loanPurpose },
                 source: 'toolfn-call'
@@ -597,10 +601,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureRequestedLoanAmount': {
               const { requestedLoanAmount } = functionArgs as { requestedLoanAmount?: number };
-              saveOrUpdateUserData(message.call?.id, { requestedLoanAmount });
+              saveOrUpdateUserData(callId, { requestedLoanAmount });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { requestedLoanAmount },
                 source: 'toolfn-call'
@@ -617,10 +621,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureExistingDebtPayment': {
               const { existingDebtPayment } = functionArgs as { existingDebtPayment?: number };
-              saveOrUpdateUserData(message.call?.id, { existingDebtPayment });
+              saveOrUpdateUserData(callId, { existingDebtPayment });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { existingDebtPayment },
                 source: 'toolfn-call'
@@ -637,10 +641,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureMonthlyExpenses': {
               const { monthlyExpenses } = functionArgs as { monthlyExpenses?: number };
-              saveOrUpdateUserData(message.call?.id, { monthlyExpenses });
+              saveOrUpdateUserData(callId, { monthlyExpenses });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { monthlyExpenses },
                 source: 'toolfn-call'
@@ -657,10 +661,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureMonthlyRevenue': {
               const { monthlyRevenue } = functionArgs as { monthlyRevenue?: number };
-              saveOrUpdateUserData(message.call?.id, { monthlyRevenue });
+              saveOrUpdateUserData(callId, { monthlyRevenue });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { monthlyRevenue },
                 source: 'toolfn-call'
@@ -677,10 +681,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'capturePurchasePrice': {
               const { purchasePrice } = functionArgs as { purchasePrice?: number };
-              saveOrUpdateUserData(message.call?.id, { purchasePrice });
+              saveOrUpdateUserData(callId, { purchasePrice });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { purchasePrice },
                 source: 'toolfn-call'
@@ -697,10 +701,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureUserTypeNewApplication': {
               const { type } = functionArgs as { type?: string };
-              saveOrUpdateUserData(message.call?.id, { type });
+              saveOrUpdateUserData(callId, { type });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { type }, // This type can be either buyer or some other type, which signalizes that it's a non buyer
                 source: 'toolfn-call'
@@ -717,10 +721,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureAvailableCash': {
               const { availableCash } = functionArgs as { availableCash?: number };
-              saveOrUpdateUserData(message.call?.id, { availableCash });
+              saveOrUpdateUserData(callId, { availableCash });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { availableCash },
                 source: 'toolfn-call'
@@ -737,10 +741,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureSellingFinancingPercentage': {
               const { sellerFinancingPercentage } = functionArgs as { sellerFinancingPercentage?: number };
-              saveOrUpdateUserData(message.call?.id, { sellerFinancingPercentage });
+              saveOrUpdateUserData(callId, { sellerFinancingPercentage });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { sellerFinancingPercentage },
                 source: 'toolfn-call'
@@ -757,10 +761,10 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureIfSellerFinancingOnStandbyExists': {
               const { sellerFinancingOnStandbyExists } = functionArgs as { sellerFinancingOnStandbyExists?: boolean };
-              saveOrUpdateUserData(message.call?.id, { sellerFinancingOnStandbyExists });
+              saveOrUpdateUserData(callId, { sellerFinancingOnStandbyExists });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { sellerFinancingOnStandbyExists },
                 source: 'toolfn-call'
@@ -777,7 +781,7 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'captureApplicationId': {
               const { applicationId } = functionArgs as { applicationId?: string };
-
+              console.log("Capturing applicationId:")
               if (!applicationId) {
                 return {
                   toolCallId: toolCall.id,
@@ -785,8 +789,8 @@ app.post('/vapi-ai', async (req, res) => {
                 };
               }
 
-              saveOrUpdateUserData(message.call?.id, { applicationId });
-              console.log(`📝 Stored applicationId: ${applicationId} for call ${message.call?.id}`);
+              saveOrUpdateUserData(callId, { applicationId });
+              console.log(`📝 Stored applicationId: ${applicationId} for call ${callId}`);
 
               return {
                 toolCallId: toolCall.id,
@@ -796,7 +800,7 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'getFilledFields': {
               const { applicationId } = functionArgs as { applicationId?: string };
-
+              console.log("Getting filled fields for applicationId:", applicationId)
               if (!applicationId) {
                 return {
                   toolCallId: toolCall.id,
@@ -832,9 +836,11 @@ app.post('/vapi-ai', async (req, res) => {
 
                 const pdfBuffer = await downloadDocument(document.s3Key);
                 const { filledFields, emptyFields } = await extractFormFieldValues(pdfBuffer);
-
+                
+                console.log("message:")
+                console.log(message)
                 // Store emptyFields in userDataStore for this call (used by captureHighlightField)
-                saveOrUpdateUserData(message.call?.id, {
+                saveOrUpdateUserData(callId, {
                   emptyFields,
                   applicationId
                 });
@@ -872,18 +878,19 @@ app.post('/vapi-ai', async (req, res) => {
 
               // Broadcast highlight event for current field
               websocketService.broadcast('highlight-fields', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 field,
                 text,
                 source: 'vapi-tool-call'
               }, rooms);
 
-              console.log(`✨ Highlighted field: ${field} with text: "${text || 'none'}" for call ${message.call?.id}`);
+              console.log(`✨ Highlighted field: ${field} with text: "${text || 'none'}" for call ${callId}`);
 
               // Auto-highlight next field if we filled a field (text provided)
               if (text) {
-                const userData = getUserData(message.call?.id);
+                console.log(`🚀 Attempting auto-advance after filling field: ${field}, for the call: ${callId}`);
+                const userData = getUserData(callId);
                 console.log("userData")
                 console.log(userData)
                 let emptyFields = userData?.emptyFields as string[] | undefined;
@@ -902,7 +909,7 @@ app.post('/vapi-ai', async (req, res) => {
                         console.log(fieldData)
                         emptyFields = fieldData.emptyFields;
                         // Cache for future calls
-                        saveOrUpdateUserData(message.call?.id, { emptyFields });
+                        saveOrUpdateUserData(callId, { emptyFields });
                         console.log(`📋 Fetched empty fields for auto-advance: ${emptyFields.length} empty fields`);
                       }
                     }
@@ -915,7 +922,7 @@ app.post('/vapi-ai', async (req, res) => {
                 const filledFieldsThisSession = (userData?.filledFieldsThisSession as string[]) || [];
                 if (!filledFieldsThisSession.includes(field)) {
                   filledFieldsThisSession.push(field);
-                  saveOrUpdateUserData(message.call?.id, { filledFieldsThisSession });
+                  saveOrUpdateUserData(callId, { filledFieldsThisSession });
                 }
 
                 let nextField: string | undefined;
@@ -925,6 +932,8 @@ app.post('/vapi-ai', async (req, res) => {
                 for (let i = currentIndex + 1; i < FORM_FIELD_ORDER.length; i++) {
                   const candidateField = FORM_FIELD_ORDER[i];
                   const isEmptyInPdf = !emptyFields || emptyFields.includes(candidateField);
+                  console.log("Empty fields in the pdf:")
+                  console.log(emptyFields)
                   const notFilledThisSession = !filledFieldsThisSession.includes(candidateField);
                   if (isEmptyInPdf && notFilledThisSession) {
                     console.log(`➡️ Next field to highlight: ${candidateField}`);
@@ -937,7 +946,7 @@ app.post('/vapi-ai', async (req, res) => {
                 if (nextField) {
                   console.log(`🔜 Auto-advancing to next field: ${nextField}`);
                   websocketService.broadcast('highlight-fields', {
-                    callId: message.call?.id,
+                    callId: callId,
                     timestamp: new Date().toISOString(),
                     field: nextField,
                     source: 'auto-advance'
@@ -1006,7 +1015,7 @@ app.post('/vapi-ai', async (req, res) => {
               console.log(`📋 Capturing checkbox selection: ${group} = ${value} -> field: ${fieldName}`);
 
               // Store PDF field name in userDataStore
-              saveOrUpdateUserData(message.call?.id, {
+              saveOrUpdateUserData(callId, {
                 [fieldName]: true
               });
 
@@ -1017,14 +1026,14 @@ app.post('/vapi-ai', async (req, res) => {
                 console.log(`📋 Exclusive group - all checkboxes:`, groupCheckboxes);
               }
 
-              console.log("message call id:", message.call?.id);
+              console.log("message call id:", callId);
               console.log("broadcasting to rooms:", rooms);
 
               // Broadcast to WebSocket
               websocketService.broadcast(
                 'checkbox-selection',
                 {
-                  callId: message.call?.id,
+                  callId: callId,
                   timestamp: new Date().toISOString(),
                   fields: { [fieldName]: true },
                   fieldType: 'checkbox',
@@ -1064,14 +1073,14 @@ app.post('/vapi-ai', async (req, res) => {
 
       case 'transcript':
         if (message.role === 'user' && message.transcript) {
-          extractFormDataFromTranscript(message.transcript, message.call?.id, rooms);
+          extractFormDataFromTranscript(message.transcript, callId, rooms);
         }
         break;
 
       case 'speech-update': {
         const transcript = message.transcript ?? message.output?.transcript ?? '';
         if (transcript) {
-          extractFormDataFromTranscript(transcript, message.call?.id, rooms);
+          extractFormDataFromTranscript(transcript, callId, rooms);
         }
         break;
       }
@@ -1167,6 +1176,7 @@ function saveOrUpdateUserData(callId: string | undefined, data: any) {
     updatedAt: new Date()
   };
   
+  console.log(`Saving user data for call ${callId}:`, updated);
   userDataStore.set(callId, updated);
   
   // TODO: Save to actual database
@@ -1176,7 +1186,8 @@ function saveOrUpdateUserData(callId: string | undefined, data: any) {
 }
 
 // Optional: Get all captured data for a call
-function getUserData(callId: string) {
+function getUserData(callId: string | undefined) {
+  if (!callId) return
   return userDataStore.get(callId);
 }
 
