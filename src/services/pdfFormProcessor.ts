@@ -1,17 +1,148 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import { PDFDocument, PDFForm, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup } from 'pdf-lib';
-import { 
-  PDFFormField, 
-  PDFFormData, 
-  FormFillingRequest, 
+import {
+  PDFFormField,
+  PDFFormData,
   FormFillingResponse,
-  FormAnalysisResult 
+  FormAnalysisResult
 } from '../types';
+import { processWithLLM } from '../agents/BaseAgent.js';
 
 // Initialize directories
 const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
 const GENERATED_DIR = path.join(process.cwd(), 'generated');
+
+// Checkbox group mappings
+// Maps user-friendly values to PDF checkbox field names
+export const CHECKBOX_GROUPS: Record<string, {
+  description: string;
+  options: Record<string, string>; // user value -> PDF field name
+  exclusive?: boolean; // true if only one can be selected at a time
+}> = {
+  entity: {
+    description: "Type of business entity",
+    options: {
+      "LLC": "llc",
+      "C-Corp": "ccorp",
+      "S-Corp": "scorp",
+      "Partnership": "partnership",
+      "Sole Proprietor": "soleprop",
+      "Other": "etother"
+    },
+    exclusive: true
+  },
+  specialOwnershipType: {
+    description: "Special ownership type (multiple checkboxes can be selected)",
+    options: {
+      "ESOP": "ownESOP",
+      "401k": "own401k",
+      "Cooperative": "ownCooperative",
+      "Native American Tribe": "ownNATribe",
+      "Other": "ownOther"
+    }
+    // Not exclusive
+  },
+  veteranStatus: {
+    description: "Veteran status",
+    options: {
+      "Non-Veteran": "statNonVet",
+      "Veteran": "statVet",
+      "Service-Disabled Veteran": "statVetSp",
+      "Veteran with Disability": "statVetD",
+      "Veteran without Disability": "statVetND"
+    },
+    exclusive: true
+  },
+  sex: {
+    description: "Sex",
+    options: {
+      "Male": "male",
+      "Female": "female"
+    },
+    exclusive: true
+  },
+  race: {
+    description: "Race",
+    options: {
+      "American Indian or Alaska Native": "raceAIAN",
+      "Asian": "raceAsian",
+      "Black or African American": "raceBAA",
+      "Native Hawaiian or Other Pacific Islander": "raceNHPI",
+      "White": "raceWhite",
+      "Not Disclosed": "raceND"
+    },
+    exclusive: true
+  },
+  ethnicity: {
+    description: "Ethnicity",
+    options: {
+      "Hispanic or Latino": "ethHisp",
+      "Not Hispanic or Latino": "ethNot",
+      "Not Disclosed": "ethND"
+    },
+    exclusive: true
+  }
+};
+
+/**
+ * Returns all checkbox field names in a group
+ * @param group - The checkbox group name
+ * @returns string[] of all field names in the group
+ */
+export function getGroupCheckboxes(group: string): string[] {
+  const groupConfig = CHECKBOX_GROUPS[group];
+  if (!groupConfig) return [];
+  return Object.values(groupConfig.options);
+}
+
+// Form 413 Checkbox Groups
+export const CHECKBOX_GROUPS_413: Record<string, {
+  description: string;
+  options: Record<string, string>; // user value -> PDF field name
+  exclusive?: boolean;
+}> = {
+  loanProgram: {
+    description: "SBA Loan Program Type (multiple can be selected)",
+    options: {
+      "Disaster Business Loan Application (Excluding Sole Proprietorships)": "Disaster Business Loan Appliction (Excluding Sole Proprietorships)",
+      "Women Owned Small Business (WOSB) Federal Contracting Program": "Women Owned Small Business (WOSB) Federal Contracting Program",
+      "8(a) Business Development Program": "8(a) Business Development Program",
+      "7(a) loan/04 loan/Surety Bonds": "7(a) loan/04 loan/Surety Bonds"
+    }
+    // Not exclusive - multiple programs can be selected
+  },
+  businessType: {
+    description: "Type of business entity",
+    options: {
+      "Corporation": "Business Type: Corporation",
+      "S-Corp": "Business Type: S-Corp",
+      "LLC": "Business Type: LLC",
+      "Partnership": "Business Type: Partnership",
+      "Sole Proprietor": "Business Type: Sole Proprietor"
+    },
+    exclusive: true
+  },
+  wosbMaritalStatus: {
+    description: "WOSB Applicant Marital Status",
+    options: {
+      "Married": "WOSB Applicant Married Yes",
+      "Not Married": "WOSB Applicant Married No"
+    },
+    exclusive: true
+  }
+};
+
+/**
+ * Returns all checkbox field names in a Form 413 group
+ * @param group - The checkbox group name for Form 413
+ * @returns string[] of all field names in the group
+ */
+export function getGroupCheckboxes413(group: string): string[] {
+  const groupConfig = CHECKBOX_GROUPS_413[group];
+  if (!groupConfig) return [];
+  return Object.values(groupConfig.options);
+}
 
 export const initializePDFDirectories = async (): Promise<void> => {
   await fs.ensureDir(TEMPLATES_DIR);
@@ -120,7 +251,6 @@ export const fillPDFForm = async (
     const availableFieldNames = formFields.map(f => f.getName());
     // Fill fields with provided data
     for (const [fieldName, value] of Object.entries(data)) {
-      console.log(`Filling field: ${fieldName} with value: ${value}`);
       try {
         if (availableFieldNames.includes(fieldName)) {
           const field = form.getField(fieldName);
@@ -213,6 +343,7 @@ export const mapDataWithAI = async (
     - Use intelligent mapping (e.g., "firstName" maps to "First Name" or "first_name")
     - For checkboxes, use boolean true/false
     - For missing data, omit the field from the response
+    - If there is a checkbox called OC, check it all the time
     - Split combined fields intelligently (e.g., "fullName" can map to separate "Name" or "First Name"/"Last Name" fields)
 
     ${customInstructions ? `Additional instructions: ${customInstructions}` : ''}`;
@@ -300,5 +431,125 @@ const simpleFieldMapping = (formFields: PDFFormField[], userData: Record<string,
   return mappedData;
 };
 
-// Import processWithLLM from BaseAgent
-import { processWithLLM } from '../agents/BaseAgent.js';
+
+// Extract form field values from PDF buffer (for reading filled fields)
+export const extractFormFieldValues = async (
+  pdfBuffer: Buffer
+): Promise<{
+  filledFields: string[];
+  emptyFields: string[];
+  allFields: Record<string, any>;
+}> => {
+  try {
+    const pdfDoc = await PDFDocument.load(pdfBuffer);
+    const form = pdfDoc.getForm();
+    const fields = form.getFields();
+
+    const filledFields: string[] = [];
+    const emptyFields: string[] = [];
+    const allFields: Record<string, any> = {};
+
+    for (const field of fields) {
+      const fieldName = field.getName();
+      const fieldType = field.constructor.name;
+
+      // Process text fields
+      if (fieldType === 'PDFTextField' || fieldType === 'PDFTextField2') {
+        try {
+          const textField = field as PDFTextField;
+          const value = textField.getText();
+
+          allFields[fieldName] = value;
+
+          // Determine if field is filled or empty
+          const isFilled = value !== null && value !== undefined && value !== '';
+          if (isFilled) {
+            filledFields.push(fieldName);
+          } else {
+            emptyFields.push(fieldName);
+          }
+        } catch (fieldError) {
+          console.warn(`Could not read value from field ${fieldName}:`, fieldError);
+          allFields[fieldName] = null;
+          emptyFields.push(fieldName);
+        }
+      }
+      // Process checkboxes
+      else if (fieldType === 'PDFCheckBox' || fieldType === 'PDFCheckBox2') {
+        try {
+          const checkbox = field as PDFCheckBox;
+          const isChecked = checkbox.isChecked();
+
+          allFields[fieldName] = isChecked;
+
+          if (isChecked) {
+            filledFields.push(fieldName);
+          } else {
+            emptyFields.push(fieldName);
+          }
+        } catch (fieldError) {
+          console.warn(`Could not read checkbox value from field ${fieldName}:`, fieldError);
+          allFields[fieldName] = false;
+          emptyFields.push(fieldName);
+        }
+      }
+    }
+
+    return {
+      filledFields,
+      emptyFields,
+      allFields
+    };
+  } catch (error) {
+    console.error('Error extracting form field values:', error);
+    throw new Error(`Failed to extract form field values: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+};
+
+/**
+ * Fills checkboxes with group awareness (unchecks others in same group)
+ * Ensures mutual exclusivity - only one checkbox per group is checked
+ *
+ * @param form - The PDF form object
+ * @param group - The checkbox group name (must exist in CHECKBOX_GROUPS)
+ * @param value - The user-friendly value to select (e.g., "LLC", "C-Corp")
+ * @returns boolean - true if successful, false otherwise
+ */
+export const fillCheckboxGroup = (
+  form: PDFForm,
+  group: string,
+  value: string
+): boolean => {
+  const groupConfig = CHECKBOX_GROUPS[group];
+  if (!groupConfig) {
+    console.warn(`⚠️ Unknown checkbox group: ${group}`);
+    return false;
+  }
+
+  const fieldNameToCheck = groupConfig.options[value];
+  if (!fieldNameToCheck) {
+    console.warn(`⚠️ Unknown value "${value}" for group "${group}". Available options:`, Object.keys(groupConfig.options));
+    return false;
+  }
+
+  // Uncheck all checkboxes in this group first
+  for (const fieldName of Object.values(groupConfig.options)) {
+    try {
+      const checkbox = form.getField(fieldName) as PDFCheckBox;
+      checkbox.uncheck();
+    } catch (err) {
+      console.warn(`⚠️ Field ${fieldName} not found in PDF form`);
+    }
+  }
+
+  // Check the selected checkbox
+  try {
+    const checkbox = form.getField(fieldNameToCheck) as PDFCheckBox;
+    checkbox.check();
+    console.log(`✅ Checked checkbox: ${fieldNameToCheck} (${group}: ${value})`);
+    return true;
+  } catch (err) {
+    console.error(`❌ Failed to check ${fieldNameToCheck}:`, err);
+    return false;
+  }
+};

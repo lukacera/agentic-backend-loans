@@ -52,16 +52,17 @@ export const generateS3Key = (
  * @param applicationId - Application ID
  * @param fileName - Name of the file
  * @param buffer - File buffer
- * @param docType - Document type ('unsigned' or 'signed')
+ * @param customKey - Optional custom S3 key (overrides default key generation)
  * @returns Object with S3 key and URL
  */
 export const uploadDocument = async (
   applicationId: string,
   fileName: string,
   buffer: Buffer,
+  customKey?: string
 ): Promise<{ key: string; url: string }> => {
   try {
-    const key = generateS3Key(applicationId, fileName);
+    const key = customKey || generateS3Key(applicationId, fileName);
 
     const command = new PutObjectCommand({
       Bucket: BUCKET_NAME,
@@ -92,7 +93,7 @@ export const uploadDocument = async (
  * @param applicationId - Application ID
  * @param fileName - Name of the file
  * @param buffer - File buffer
- * @param docType - Document type ('unsigned' or 'signed')
+ * @param customKey - Optional custom S3 key (overrides default key generation)
  * @param maxRetries - Maximum number of retry attempts
  * @returns Object with S3 key and URL
  */
@@ -100,13 +101,14 @@ export const uploadDocumentWithRetry = async (
   applicationId: string,
   fileName: string,
   buffer: Buffer,
+  customKey?: string,
   maxRetries: number = 3
 ): Promise<{ key: string; url: string }> => {
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      return await uploadDocument(applicationId, fileName, buffer);
+      return await uploadDocument(applicationId, fileName, buffer, customKey);
     } catch (error) {
       lastError = error instanceof Error ? error : new Error('Unknown error');
       console.error(`Upload attempt ${attempt} failed:`, error);

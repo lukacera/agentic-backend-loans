@@ -9,6 +9,7 @@ import {
   getApplications,
   handleSignedDocuments,
   markUnsignedDocumentAsSigned,
+  markDraftDocumentAsSigned,
   deleteSignedDocument,
   submitApplicationToBank,
   addUserProvidedDocuments,
@@ -17,20 +18,23 @@ import {
   calculateSBAEligibilityForBuyer,
   calculateSBAEligibilityForOwner,
   calculateSBAEligibilityForBuyerVAPI,
-  calculateSBAEligibilityForOwnerVAPI
+  calculateSBAEligibilityForOwnerVAPI,
+  generateDraftPDFs
 } from '../services/applicationService.js';
 import {
   ApplicationSubmissionRequest,
   DraftApplicationRequest,
   ApplicationStatus,
   UserProvidedDocumentType,
+  DefaultDocumentType,
   LoanChanceResult,
   SBAApplicationData
 } from '../types/index.js';
 import { Application } from '../models/Application.js';
-import { generatePresignedUrl } from '../services/s3Service.js';
+import { generatePresignedUrl, uploadDocumentWithRetry, downloadDocument } from '../services/s3Service.js';
 import { formatApplicationStatus } from '../utils/formatters.js';
 import websocketService from '../services/websocket.js';
+import { extractFormFieldValues } from '../services/pdfFormProcessor.js';
 
 const router = express.Router();
 
@@ -456,11 +460,15 @@ router.post('/draft', async (req, res) => {
       chanceResult = calculateSBAEligibilityForBuyer(req.body as any);
     }
 
-    const result = await createDraft(applicationPayload, chanceResult);
+    const draftApplication = await createDraft(applicationPayload, chanceResult);
 
     res.status(201).json({
       success: true,
-      data: result
+      data: {
+        status: ApplicationStatus.DRAFT,
+        message: 'Application saved as draft successfully.',
+        applicationId: draftApplication._id
+      }
     });
 
   } catch (error) {
@@ -472,197 +480,180 @@ router.post('/draft', async (req, res) => {
   }
 });
 
-// PATCH /api/applications/:applicationId/convert - Convert draft to normal application
-router.patch('/:applicationId/convert', async (req, res) => {
+// PATCH /api/applications/:applicationId/draft - Update draft application with edited PDF from frontend
+router.patch('/:applicationId/draft', upload.single('document'), async (req, res) => {
   try {
     const { applicationId } = req.params;
-    const { name, businessName, businessPhone, creditScore, yearFounded }: ApplicationSubmissionRequest = req.body;
+    const file = req.file as Express.Multer.File | undefined;
 
-    // Validate required fields for conversion
-    if (!name || !businessName || !yearFounded) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields: name, businessName, and yearFounded are required'
-      });
-    }
+    // Find the draft application
+    const application = await Application.findById(applicationId);
 
-    // Validate field types and formats
-    if (typeof name !== 'string' || name.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Name must be a non-empty string'
-      });
-    }
-
-    if (typeof businessName !== 'string' || businessName.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Business name must be a non-empty string'
-      });
-    }
-
-    if (yearFounded < 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Years in business must be a positive number'
-      });
-    }
-
-    // Get the draft application to determine user type
-    const draftApplication = await Application.findById(applicationId);
-
-    if (!draftApplication) {
+    if (!application) {
       return res.status(404).json({
         success: false,
         error: 'Application not found'
       });
     }
 
-    if (draftApplication.status !== ApplicationStatus.DRAFT) {
+    if (application.status !== ApplicationStatus.DRAFT) {
       return res.status(400).json({
         success: false,
-        error: `Application is not in draft status. Current status: ${draftApplication.status}`
+        error: `Cannot update application. Current status: ${application.status}. Only DRAFT applications can be updated.`
       });
     }
 
-    // Use the user type from the draft application (not from request body)
-    const userType = draftApplication.applicantData.userType;
+    // If PDF is provided, upload it to S3
+    if (file) {
+      // Validate fileType
+      const fileType = (req.body?.fileType as string)?.trim();
 
-    const updatedData: Partial<SBAApplicationData> = {
-      name: name.trim(),
-      businessName: businessName.trim(),
-      businessPhoneNumber: businessPhone?.trim() || '',
-      creditScore,
-      yearFounded,
-      isUSCitizen: req.body.isUSCitizen === true
-      // userType is NOT included here - it will be preserved from the draft
-    };
-
-    if (typeof req.body.annualRevenue === 'number') {
-      updatedData.annualRevenue = req.body.annualRevenue;
-    } else if (req.body.annualRevenue !== undefined && req.body.annualRevenue !== null) {
-      const parsedAnnualRevenue = Number(req.body.annualRevenue);
-      if (!Number.isNaN(parsedAnnualRevenue)) {
-        updatedData.annualRevenue = parsedAnnualRevenue;
-      }
-    }
-
-    // Validate and add type-specific fields
-    if (userType === 'owner') {
-      const ownerFieldConfigs: Array<{ key: string; type: 'numeric' | 'string' }> = [
-        { key: 'monthlyRevenue', type: 'numeric' },
-        { key: 'monthlyExpenses', type: 'numeric' },
-        { key: 'existingDebtPayment', type: 'numeric' },
-        { key: 'requestedLoanAmount', type: 'numeric' },
-        { key: 'loanPurpose', type: 'string' },
-        { key: 'creditScore', type: 'numeric' },
-        { key: 'yearFounded', type: 'numeric' }
-      ];
-
-      const ownerErrors: string[] = [];
-      const ownerValues: Record<string, string | number> = {};
-
-      for (const field of ownerFieldConfigs) {
-        const rawValue = req.body[field.key];
-
-        if (field.type === 'numeric') {
-          const normalized = normalizeNumericInput(rawValue);
-
-          if (!normalized.valid) {
-            ownerErrors.push(`Field ${field.key} is required and must be a valid number for owner applications`);
-            continue;
-          }
-
-          if (field.key === 'yearFounded') {
-            ownerValues[field.key] = normalized.numberValue ?? Number(normalized.stringValue as string);
-          } else {
-            ownerValues[field.key] = normalized.stringValue as string;
-          }
-
-        } else {
-          const normalized = normalizeNonEmptyString(rawValue);
-
-          if (!normalized.valid) {
-            ownerErrors.push(`Field ${field.key} is required for owner applications`);
-            continue;
-          }
-
-          ownerValues[field.key] = normalized.stringValue as string;
-        }
-      }
-
-      if (ownerErrors.length > 0) {
+      if (!fileType) {
         return res.status(400).json({
           success: false,
-          error: ownerErrors.join('; ')
+          error: `fileType is required and must be one of: ${Object.values(DefaultDocumentType).join(', ')}`
         });
       }
 
-      updatedData.monthlyRevenue = ownerValues.monthlyRevenue as string;
-      updatedData.monthlyExpenses = ownerValues.monthlyExpenses as string;
-      updatedData.existingDebtPayment = ownerValues.existingDebtPayment as string;
-      updatedData.requestedLoanAmount = ownerValues.requestedLoanAmount as string;
-      updatedData.loanPurpose = ownerValues.loanPurpose as string;
-      updatedData.creditScore = Number(ownerValues.creditScore);
-      updatedData.yearFounded = ownerValues.yearFounded as number;
+      const validTypes = new Set(Object.values(DefaultDocumentType));
+      if (!validTypes.has(fileType as DefaultDocumentType)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid fileType. Must be one of: ${Object.values(DefaultDocumentType).join(', ')}`
+        });
+      }
+
+      const s3Key = `drafts/${applicationId}/${file.originalname}`;
+      
+      const s3Result = await uploadDocumentWithRetry(
+        applicationId,
+        file.originalname,
+        file.buffer,
+        s3Key
+      );
+
+      const uploadedPDF = {
+        fileName: file.originalname,
+        s3Key: s3Result.key,
+        s3Url: s3Result.url,
+        generatedAt: new Date(),
+        fileType: fileType as DefaultDocumentType
+      };
+
+      // Find existing document with same fileType and replace, or add new
+      const existingIndex = application.draftDocuments?.findIndex(
+        (doc: any) => doc.fileType === fileType
+      ) ?? -1;
+      console.log("fileType", fileType);
+      console.log("existingIndex", existingIndex);
+      if (existingIndex >= 0) {
+        application.draftDocuments![existingIndex] = uploadedPDF as any;
+      } else {
+        if (!application.draftDocuments) {
+          application.draftDocuments = [];
+        }
+        application.draftDocuments.push(uploadedPDF as any);
+      }
+      await application.save();
+
+      // Broadcast updated PDF via WebSocket
+      websocketService.broadcast('draft-updated', {
+        draftApplicationId: applicationId,
+        pdfUrl: {
+          fileName: uploadedPDF.fileName,
+          url: uploadedPDF.s3Url,
+          generatedAt: uploadedPDF.generatedAt,
+          fileType: uploadedPDF.fileType
+        },
+        timestamp: new Date().toISOString(),
+        source: 'draft-update'
+      }, ["global"]);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          applicationId,
+          status: application.status,
+          applicantData: application.applicantData,
+          uploadedDocument: {
+            fileName: uploadedPDF.fileName,
+            url: uploadedPDF.s3Url,
+            generatedAt: uploadedPDF.generatedAt,
+            fileType: uploadedPDF.fileType
+          },
+          draftDocuments: application.draftDocuments
+        }
+      });
     } else {
-      const buyerFieldConfigs: Array<{ key: string; type: 'numeric' | 'string' }> = [
-        { key: 'purchasePrice', type: 'numeric' },
-        { key: 'availableCash', type: 'numeric' },
-        { key: 'businessCashFlow', type: 'numeric' },
-        { key: 'industryExperience', type: 'string' },
-        { key: 'creditScore', type: 'numeric' },
-        { key: 'yearFounded', type: 'numeric' }
-      ];
-
-      const buyerErrors: string[] = [];
-      const buyerValues: Record<string, string | number> = {};
-
-      for (const field of buyerFieldConfigs) {
-        const rawValue = req.body[field.key];
-
-        if (field.type === 'numeric') {
-          const normalized = normalizeNumericInput(rawValue);
-
-          if (!normalized.valid) {
-            buyerErrors.push(`Field ${field.key} is required and must be a valid number for buyer applications`);
-            continue;
-          }
-
-          if (field.key === 'yearFounded') {
-            buyerValues[field.key] = normalized.numberValue ?? Number(normalized.stringValue as string);
-          } else {
-            buyerValues[field.key] = normalized.stringValue as string;
-          }
-
-        } else {
-          const normalized = normalizeNonEmptyString(rawValue);
-
-          if (!normalized.valid) {
-            buyerErrors.push(`Field ${field.key} is required for buyer applications`);
-            continue;
-          }
-
-          buyerValues[field.key] = normalized.stringValue as string;
+      // No PDFs provided, just return current state
+      res.status(200).json({
+        success: true,
+        data: {
+          applicationId,
+          status: application.status,
+          applicantData: application.applicantData,
+          draftDocuments: application.draftDocuments
         }
-      }
-
-      if (buyerErrors.length > 0) {
-        return res.status(400).json({
-          success: false,
-          error: buyerErrors.join('; ')
-        });
-      }
-
-      updatedData.purchasePrice = buyerValues.purchasePrice as string;
-      updatedData.availableCash = buyerValues.availableCash as string;
-      updatedData.businessCashFlow = buyerValues.businessCashFlow as string;
-      updatedData.industryExperience = buyerValues.industryExperience as string;
-      updatedData.creditScore = Number(buyerValues.creditScore);
-      updatedData.yearFounded = buyerValues.yearFounded as number;
+      });
     }
 
-    const { response, userType: preservedUserType } = await convertDraftToApplication(applicationId, updatedData);
+  } catch (error) {
+    console.error('Error updating draft application:', error);
+
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    const statusCode = message === 'Application not found' ? 404 : 500;
+
+    res.status(statusCode).json({
+      success: false,
+      error: message
+    });
+  }
+});
+
+// PATCH /api/applications/:applicationId/convert - Convert draft to normal application
+router.patch('/:applicationId/convert', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+
+    // Find the draft application
+    const application = await Application.findById(applicationId);
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found'
+      });
+    }
+
+    if (application.status !== ApplicationStatus.DRAFT) {
+      return res.status(400).json({
+        success: false,
+        error: `Application is not in draft status. Current status: ${application.status}`
+      });
+    }
+
+    // Check that both required documents exist
+    const hasTaxReturn = application.userProvidedDocuments.some(
+      doc => doc.fileType === UserProvidedDocumentType.TAX_RETURN
+    );
+
+    const hasLandP = application.userProvidedDocuments.some(
+      doc => doc.fileType === UserProvidedDocumentType.L_AND_P
+    );
+
+    if (!hasTaxReturn || !hasLandP) {
+      const missingDocs = [];
+      if (!hasTaxReturn) missingDocs.push('Tax Return');
+      if (!hasLandP) missingDocs.push('L&P (Profit & Loss)');
+
+      return res.status(400).json({
+        success: false,
+        error: `Missing required documents: ${missingDocs.join(', ')}. Please upload both documents before converting.`
+      });
+    }
+
+    // Convert draft to full application (no data changes, just status update)
+    const { response } = await convertDraftToApplication(applicationId);
 
     res.status(200).json({
       success: true,
@@ -785,15 +776,16 @@ router.get('/documents/sample-contract', async (req, res) => {
 router.get('/:applicationId', async (req, res) => {
   try {
     const { applicationId } = req.params;
+    const expiresIn = parseInt(req.query.expiresIn as string) || 3600; // 1 hour default
     
     const application = await Application.findById(applicationId)
       .populate({
-      path: 'banks.bank',
-      model: 'Bank',
+        path: 'banks.bank',
+        model: 'Bank'
       })
       .populate({
-      path: 'offers.bank',
-      model: 'Bank',
+        path: 'offers.bank',
+        model: 'Bank'
       })
       .exec();
 
@@ -803,10 +795,69 @@ router.get('/:applicationId', async (req, res) => {
         error: 'Application not found'
       });
     }
+
+    // Generate presigned URLs for all document types
+    const [unsignedDocuments, signedDocuments, userProvidedDocuments, draftDocuments] = await Promise.all([
+      // Unsigned documents
+      Promise.all(
+        (application.unsignedDocuments || []).map(async (doc) => ({
+          fileName: doc.fileName,
+          s3Key: doc.s3Key,
+          url: await generatePresignedUrl(doc.s3Key, expiresIn),
+          uploadedAt: doc.uploadedAt,
+          fileType: doc.fileType,
+          expiresIn
+        }))
+      ),
+      // Signed documents
+      Promise.all(
+        (application.signedDocuments || []).map(async (doc) => ({
+          fileName: doc.fileName,
+          s3Key: doc.s3Key,
+          url: await generatePresignedUrl(doc.s3Key, expiresIn),
+          uploadedAt: doc.uploadedAt,
+          signedAt: doc.signedAt,
+          fileType: doc.fileType,
+          expiresIn
+        }))
+      ),
+      // User provided documents
+      Promise.all(
+        (application.userProvidedDocuments || []).map(async (doc) => ({
+          fileName: doc.fileName,
+          s3Key: doc.s3Key,
+          url: await generatePresignedUrl(doc.s3Key, expiresIn),
+          uploadedAt: doc.uploadedAt,
+          fileType: doc.fileType,
+          expiresIn
+        }))
+      ),
+      // Draft documents
+      Promise.all(
+        (application.draftDocuments || []).map(async (doc: any) => ({
+          fileName: doc.fileName,
+          s3Key: doc.s3Key,
+          url: await generatePresignedUrl(doc.s3Key, expiresIn),
+          generatedAt: doc.generatedAt,
+          fileType: doc.fileType,
+          expiresIn,
+          signed: doc.signed || false
+        }))
+      )
+    ]);
+
+    // Convert to plain object and override document arrays with presigned versions
+    const applicationData = application.toObject();
     
     res.json({
       success: true,
-      data: application
+      data: {
+        ...applicationData,
+        unsignedDocuments,
+        signedDocuments,
+        userProvidedDocuments,
+        draftDocuments
+      }
     });
     
   } catch (error) {
@@ -1000,6 +1051,131 @@ router.get('/:applicationId/documents/user-provided', async (req, res) => {
   }
 });
 
+// GET /api/applications/:applicationId/documents/draft - Get draft document URLs
+router.get('/:applicationId/documents/draft', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const expiresIn = parseInt(req.query.expiresIn as string) || 3600;
+
+    const application = await Application.findById(applicationId);
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found'
+      });
+    }
+
+    if (!application.draftDocuments || application.draftDocuments.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No draft documents available',
+        status: application.status
+      });
+    }
+
+    // Generate fresh presigned URLs
+    const documentsWithUrls = await Promise.all(
+      application.draftDocuments.map(async (doc: any) => {
+        const presignedUrl = await generatePresignedUrl(doc.s3Key, expiresIn);
+        return {
+          fileName: doc.fileName,
+          url: presignedUrl,
+          generatedAt: doc.generatedAt,
+          expiresIn
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      data: {
+        applicationId,
+        status: application.status,
+        documents: documentsWithUrls
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching draft documents:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// GET /api/applications/:applicationId/documents/:formName/fields - Extract filled/empty fields from PDF
+router.get('/:applicationId/documents/:formName/fields', async (req, res) => {
+  try {
+    const { applicationId, formName } = req.params;
+    const { documentType } = req.query; // 'draft', 'unsigned', or 'signed'
+
+    if (!documentType || !['draft', 'unsigned', 'signed'].includes(documentType as string)) {
+      return res.status(400).json({
+        success: false,
+        error: 'documentType query parameter is required and must be one of: draft, unsigned, signed'
+      });
+    }
+
+    const application = await Application.findById(applicationId);
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'Application not found'
+      });
+    }
+
+    // Find the document based on documentType and formName
+    let document: any = null;
+
+    if (documentType === 'draft') {
+      document = application.draftDocuments?.find(
+        (doc: any) => doc.fileType === formName || doc.fileName?.includes(formName)
+      );
+    } else if (documentType === 'unsigned') {
+      document = application.unsignedDocuments?.find(
+        (doc: any) => doc.fileName?.includes(formName)
+      );
+    } else if (documentType === 'signed') {
+      document = application.signedDocuments?.find(
+        (doc: any) => doc.fileName?.includes(formName)
+      );
+    }
+
+    if (!document) {
+      return res.status(404).json({
+        success: false,
+        error: `Document '${formName}' not found in ${documentType} documents`
+      });
+    }
+
+    // Download PDF from S3
+    const pdfBuffer = await downloadDocument(document.s3Key);
+
+    // Extract field values
+    const { filledFields, emptyFields, allFields } = await extractFormFieldValues(pdfBuffer);
+
+    res.json({
+      success: true,
+      data: {
+        applicationId,
+        formName,
+        documentType,
+        filledFields,
+        emptyFields,
+        allFields
+      }
+    });
+  } catch (error) {
+    console.error('Error extracting PDF form fields:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
 router.post('/:applicationId/documents/user-provided', upload.array('documents', 10), async (req, res) => {
   try {
     const { applicationId } = req.params;
@@ -1161,6 +1337,68 @@ router.post('/:applicationId/documents/unsigned/mark-signed', async (req, res) =
     });
   }
 });
+
+router.post('/:applicationId/documents/draft/mark-signed', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const {
+      fileName,
+      s3Key,
+      signedBy,
+      signingProvider,
+      signingRequestId,
+      signedAt,
+      signedS3Key,
+      signedS3Url
+    } = req.body ?? {};
+
+    if (!fileName && !s3Key) {
+      return res.status(400).json({
+        success: false,
+        error: 'fileName or s3Key is required to mark a document as signed'
+      });
+    }
+
+    const application = await markDraftDocumentAsSigned(applicationId, {
+      fileName,
+      s3Key,
+      signedBy,
+      signingProvider,
+      signingRequestId,
+      signedAt,
+      signedS3Key,
+      signedS3Url
+    });
+
+    res.json({
+      success: true,
+      data: {
+        applicationId,
+        status: application.status,
+        draftDocuments: application.draftDocuments,
+        signingStatus: application.signingStatus,
+        signedDate: application.signedDate
+      }
+    });
+
+  } catch (error) {
+    console.error('Error marking draft document as signed:', error);
+
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    const statusCode =
+      message === 'Application not found' || message === 'Draft document not found' || message === 'No draft documents found'
+        ? 404
+        : message === 'Document identifier (fileName or s3Key) is required'
+          ? 400
+          : 500;
+
+    res.status(statusCode).json({
+      success: false,
+      error: message
+    });
+  }
+});
+
 
 // POST /api/applications/:applicationId/documents/signed - Upload signed documents
 router.post('/:applicationId/documents/signed', upload.array('documents', 10), async (req, res) => {
@@ -1473,7 +1711,7 @@ router.post('/calculate-chances', async (req, res) => {
 
     let chanceResult: LoanChanceResult;
     let chanceResultVapi: string;
-    console
+    
     if (applicationType.toLowerCase() === 'buyer') {
       // Buyer flow - validate buyer fields
       console.log('Calculating chances for buyer with args:', toolCallArgs);
@@ -1497,14 +1735,75 @@ router.post('/calculate-chances', async (req, res) => {
       chanceResultVapi = calculateSBAEligibilityForOwnerVAPI(toolCallArgs as any);
     }
 
-    // Broadcast structured result via websocket
+    // ===== NEW: Create draft application and generate PDFs =====
+    
+    // Build applicant data from toolCallArgs
+    const applicantData: any = {
+      name: (typeof toolCallArgs.name === 'string' && toolCallArgs.name.trim()) || "Undisclosed",
+      businessName: (typeof toolCallArgs.businessName === 'string' && toolCallArgs.businessName.trim()) || "Undisclosed",
+      businessPhoneNumber: (typeof toolCallArgs.businessPhone === 'string' && toolCallArgs.businessPhone.trim()) || 
+                           (typeof toolCallArgs.businessPhoneNumber === 'string' && toolCallArgs.businessPhoneNumber.trim()) || "",
+      userType: applicationType === 'buyer' ? 'buyer' : 'owner',
+      creditScore: Number(toolCallArgs.creditScore || toolCallArgs.buyerCreditScore || toolCallArgs.ownerCreditScore || 0),
+      yearFounded: Number(toolCallArgs.yearFounded || 0),
+      isUSCitizen: toolCallArgs.isUSCitizen === true,
+      // Add type-specific fields
+      ...(applicationType === 'buyer' ? {
+        purchasePrice: String(toolCallArgs.purchasePrice || ''),
+        availableCash: String(toolCallArgs.availableCash || ''),
+        businessCashFlow: String(toolCallArgs.businessCashFlow || ''),
+        industryExperience: String(toolCallArgs.industryExperience || '')
+      } : {
+        monthlyRevenue: String(toolCallArgs.monthlyRevenue || ''),
+        monthlyExpenses: String(toolCallArgs.monthlyExpenses || ''),
+        existingDebtPayment: String(toolCallArgs.existingDebtPayment || ''),
+        requestedLoanAmount: String(toolCallArgs.requestedLoanAmount || ''),
+        loanPurpose: String(toolCallArgs.loanPurpose || '')
+      })
+    };
+
+    // Create draft application
+    const draftApp = await createDraft(applicantData as SBAApplicationData, chanceResult);
+    const draftApplicationId = draftApp._id?.toString();
+
+    if (!draftApplicationId) {
+      throw new Error('Failed to create draft application');
+    }
+
+    // Generate draft PDFs
+    const draftPDFs = await generateDraftPDFs(applicantData, draftApplicationId);
+    // Update draft application with PDF info
+    await Application.findByIdAndUpdate(draftApplicationId, {
+      draftDocuments: draftPDFs
+    });
+
+    // Broadcast calculate-chances result (existing)
     websocketService.broadcast('calculate-chances', {
       timestamp: new Date().toISOString(),
       source: 'calculate-chances',
       result: chanceResult
     }, ["global"]);
 
+    // ===== NEW: Generate presigned URLs for draft PDFs =====
+    const expiresIn = 3600; // 1 hour default
+    const draftPDFsWithPresignedUrls = await Promise.all(
+      draftPDFs.map(async (pdf) => {
+        const presignedUrl = await generatePresignedUrl(pdf.s3Key, expiresIn);
+        return {
+          fileName: pdf.fileName,
+          fileType: pdf.fileType,
+          url: presignedUrl,
+          generatedAt: pdf.generatedAt,
+          expiresIn
+        };
+      })
+    );
+
+    // ===== Broadcast form-reveal with presigned PDF URLs =====
     websocketService.broadcast('form-reveal', {
+      draftApplicationId,
+      pdfUrls: draftPDFsWithPresignedUrls,
+      callId: data.message?.call?.id,
       timestamp: new Date().toISOString(),
       source: 'backend'
     }, ["global"]);

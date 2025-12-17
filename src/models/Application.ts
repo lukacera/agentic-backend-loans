@@ -1,5 +1,5 @@
 import { Schema, model, Document } from 'mongoose';
-import { SBAApplication, ApplicationStatus, UserProvidedDocumentType, BankSubmissionStatus } from '../types/index.js';
+import { SBAApplication, ApplicationStatus, UserProvidedDocumentType, BankSubmissionStatus, DefaultDocumentType } from '../types/index.js';
 
 const sbaApplicationSchema = new Schema<SBAApplication>({
   applicantData: {
@@ -69,6 +69,11 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
     },
     industryExperience: {
       type: String
+    },
+    // Additional form fields collected during guided VAPI form completion
+    additionalFormData: {
+      type: Schema.Types.Mixed,
+      default: {}
     }
   },
   status: {
@@ -146,21 +151,6 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
       required: true
     }
   }],
-
-  // S3 Document Storage
-  unsignedDocuments: [{
-    fileName: { type: String, required: true },
-    s3Key: { type: String, required: true },
-    s3Url: { type: String },
-    uploadedAt: { type: Date, default: Date.now }
-  }],
-  signedDocuments: [{
-    fileName: { type: String, required: true },
-    s3Key: { type: String, required: true },
-    s3Url: { type: String },
-    uploadedAt: { type: Date, default: Date.now },
-    signedAt: { type: Date }
-  }],
   userProvidedDocuments: [{
     fileType: {
       type: String,
@@ -171,6 +161,18 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
     s3Key: { type: String, required: true },
     s3Url: { type: String },
     uploadedAt: { type: Date, default: Date.now }
+  }],
+  draftDocuments: [{
+    fileType: {
+      type: String,
+      required: true,
+      enum: Object.values(DefaultDocumentType)
+    },
+    fileName: { type: String, required: true },
+    s3Key: { type: String, required: true },
+    s3Url: { type: String },
+    generatedAt: { type: Date, default: Date.now },
+    signed: { type: Boolean, default: false }
   }],
   documentsUploadedToS3: {
     type: Boolean,
@@ -214,10 +216,7 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
   emailSent: {
     type: Boolean,
     default: false
-  },
-  generatedDocuments: [{
-    type: String
-  }]
+  }
 }, {
   timestamps: true, // Automatically adds createdAt and updatedAt
 });

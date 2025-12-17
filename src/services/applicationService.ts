@@ -8,19 +8,19 @@ import {
   DocumentStorageInfo,
   SBAApplication,
   UserProvidedDocumentType,
-  UserProvidedDocumentInfo,
   LoanChanceResult,
+  DefaultDocumentType,
 } from '../types/index.js';
 import { sendEmail } from './emailSender.js';
 import { composeEmail, createEmailAgent } from '../agents/EmailAgent.js';
-import { createDocumentAgent } from '../agents/DocumentAgent.js';
-import { fillPDFForm, mapDataWithAI, extractFormFields } from './pdfFormProcessor.js';
+import { fillPDFForm, fillCheckboxGroup } from './pdfFormProcessor.js';
 import {
   uploadDocumentWithRetry,
   downloadDocument,
   deleteDocument
 } from './s3Service.js';
 import { recommendBank } from './bankService.js';
+import { PDFDocument } from 'pdf-lib';
 
 // SBA Eligibility Calculator Interfaces
 interface SBAEligibilityRequestBuyer {
@@ -64,6 +64,27 @@ const GENERATED_DIR = path.join(process.cwd(), 'generated');
 
 // Credit score mapping removed - now using plain number strings
 
+// Helper function to determine DefaultDocumentType from fileName
+const getDefaultDocumentType = (fileName: string): DefaultDocumentType | undefined => {
+  if (fileName.includes('1919') || fileName.includes('SBAForm1919')) {
+    return DefaultDocumentType.SBA_1919;
+  }
+  if (fileName.includes('413') || fileName.includes('SBAForm413')) {
+    return DefaultDocumentType.SBA_413;
+  }
+  return undefined;
+};
+
+const getUserProvidedDocumentType = (fileName: string): UserProvidedDocumentType | undefined => {
+  if (fileName.includes('taxReturn') || fileName.includes('TaxReturn')) {
+    return UserProvidedDocumentType.TAX_RETURN;
+  }
+  if (fileName.includes('L&P') || fileName.includes('L&P')) {
+    return UserProvidedDocumentType.L_AND_P;
+  }
+  return undefined;
+};
+
 // Ensure directories exist
 const initializeDirectories = async (): Promise<void> => {
   await fs.ensureDir(GENERATED_DIR);
@@ -73,7 +94,7 @@ const initializeDirectories = async (): Promise<void> => {
 export const createDraft = async (
   applicantData: SBAApplicationData,
   loanChances?: { score: number; chance: 'low' | 'medium' | 'high'; reasons: string[] }
-): Promise<ApplicationResponse> => {
+): Promise<SBAApplication> => {
   try {
     await initializeDirectories();
     console.log(loanChances);
@@ -94,10 +115,7 @@ export const createDraft = async (
 
     await application.save();
 
-    return {
-      status: ApplicationStatus.DRAFT,
-      message: 'Application saved as draft successfully.'
-    };
+    return application;
 
   } catch (error) {
     console.error('Error creating draft application:', error);
@@ -107,8 +125,7 @@ export const createDraft = async (
 
 // Convert draft application to normal application and start processing
 export const convertDraftToApplication = async (
-  applicationId: string,
-  updatedData: Partial<SBAApplicationData>
+  applicationId: string
 ): Promise<{ response: ApplicationResponse; userType: 'owner' | 'buyer' }> => {
   try {
     await initializeDirectories();
@@ -127,24 +144,17 @@ export const convertDraftToApplication = async (
     // Preserve the original user type from the draft
     const originalUserType = application.applicantData.userType;
 
-    // Merge updated data with existing applicant data, but preserve userType
-    application.applicantData = {
-      ...application.applicantData,
-      ...updatedData,
-      userType: originalUserType // Explicitly preserve the original userType
-    };
-
-    // Update status to submitted
+    // Update status to submitted (no data changes, use existing draft data)
     application.status = ApplicationStatus.SUBMITTED;
     await application.save();
 
-    // Start async processing
+    // Start async processing with existing draft data
     processApplicationAsync(application);
 
     return {
       response: {
         status: ApplicationStatus.SUBMITTED,
-        message: 'Draft application converted and submitted successfully. Documents are being prepared and will be sent to the bank shortly.'
+        message: 'Draft application converted successfully and is now being processed'
       },
       userType: originalUserType
     };
@@ -236,6 +246,113 @@ const processApplicationAsync = async (application: SBAApplication): Promise<voi
   }
 };
 
+// Generate draft PDFs with captured data for preview
+export const generateDraftPDFs = async (
+  applicantData: Partial<SBAApplicationData>,
+  draftApplicationId: string
+): Promise<Array<DocumentStorageInfo>> => {
+  const generatedDraftPDFs: Array<DocumentStorageInfo> = [];
+
+  try {
+    await initializeDirectories();
+    const sbaForms = ['SBAForm1919.pdf', 'SBAForm413.pdf'];
+    
+    for (const formName of sbaForms) {
+      const templatePath = path.join(TEMPLATES_DIR, formName);
+      const outputFileName = `draft_${draftApplicationId}_${formName}`;
+      
+      if (!await fs.pathExists(templatePath)) {
+        console.warn(`Template not found: ${templatePath}`);
+        continue;
+      }
+      
+      try {
+        // Simple direct mapping - only fill applicantname and yearbeginoperations
+        const formData: Record<string, any> = {};
+        if (applicantData.name) {
+          formData['applicantname'] = applicantData.name;
+        }
+        if (applicantData.yearFounded) {
+          formData['yearbeginoperations'] = String(applicantData.yearFounded);
+        }
+        
+        const fillResult = await fillPDFForm(
+          templatePath,
+          formData,
+          outputFileName
+        );
+
+        if (fillResult.success && fillResult.outputPath) {
+          // Extract checkbox selections from applicantData
+          const checkboxData: Record<string, string> = {};
+          for (const [key, value] of Object.entries(applicantData)) {
+            if (key.startsWith('checkbox_') && typeof value === 'string') {
+              const group = key.replace('checkbox_', '');
+              checkboxData[group] = value;
+            }
+          }
+
+          // Fill checkboxes if any were provided
+          if (Object.keys(checkboxData).length > 0) {
+
+            const pdfBytes = await fs.readFile(fillResult.outputPath);
+            const pdfDoc = await PDFDocument.load(pdfBytes);
+            const form = pdfDoc.getForm();
+
+            for (const [group, value] of Object.entries(checkboxData)) {
+              const success = fillCheckboxGroup(form, group, value);
+              if (success) {
+                console.log(`✅ Filled checkbox group "${group}" with value "${value}" in ${formName}`);
+              }
+            }
+
+            const updatedPdfBytes = await pdfDoc.save();
+            await fs.writeFile(fillResult.outputPath, updatedPdfBytes);
+          }
+
+          const fileBuffer = await fs.readFile(fillResult.outputPath);
+          const s3Key = `drafts/${draftApplicationId}/${formName}`;
+
+          const s3Result = await uploadDocumentWithRetry(
+            draftApplicationId,
+            formName,
+            fileBuffer,
+            s3Key
+          );
+          console.log("s3 resukt:")
+          console.log(s3Result);
+          
+          const fileType = getDefaultDocumentType(formName);
+
+          if (!fileType) {
+            console.error(`Failed to get default document type for ${formName}`);
+            return [];
+          }
+
+          generatedDraftPDFs.push({
+            fileName: formName,
+            s3Key: s3Result.key,
+            s3Url: s3Result.url,
+            uploadedAt: new Date(),
+            fileType: fileType
+          });
+          
+          await fs.remove(fillResult.outputPath);
+        } else {
+          console.error(`Failed to generate draft ${formName}:`, fillResult.error);
+        }
+      } catch (formError) {
+        console.error(`Failed to process draft ${formName}:`, formError);
+      }
+    }
+    
+    return generatedDraftPDFs;
+  } catch (error) {
+    console.error('Error generating draft PDFs:', error);
+    throw error;
+  }
+};
+
 // Generate SBA documents using DocumentAgent and form processor
 const generateSBADocuments = async (
   applicantData: SBAApplicationData,
@@ -255,40 +372,16 @@ const generateSBADocuments = async (
         console.warn(`Template not found: ${templatePath}`);
         continue;
       }
-      
+     
       try {
-        // Extract form fields from the PDF template
-        const formAnalysis = await extractFormFields(templatePath);
-
-        // Create document agent for AI processing
-        const documentAgent = createDocumentAgent();
-        
-        // Map applicant data to form fields using AI
-        // If applicantData.type is "buyer", set loanPurpose to "Business Acquisition"
-        const formData = await mapDataWithAI(
-          formAnalysis.fields,
-          applicantData,
-          documentAgent,
-          [
-            `This is an SBA loan application form (${formName}).`,
-            `Rules for mapping fields:`,
-            `- If applicantData.userType is "buyer", set Purpose of the loan to "Business Acquisition".`,
-            `- If applicantData.userType is "owner", set Purpose of the loan to the value in applicantData.loanPurpose; if you cannot find the checkbox in the form with it, check "Other" and write it in the provided field.`,
-            `- For SBAForm413.pdf, set the checkbox for "7(a) loan / 504 loan / Surety Bonds" to checked.`,
-            `- For SBAForm1919.pdf, only 1 purpose of loan field can be checked`,
-            `- For all forms, set Business/Entity Type to "LLC".`,
-            `- For all forms, leave TIN/EIN and Primary Industry blank.`,
-            `- For all Owner Legal Name fields, use applicantData.name. THIS DOES NOT APPLY to lists/tables containing multiple owners - you are supposed to fill just the first row there.`,
-            `- For all Owner position fields, use "Owner".`,
-            `- For Veteran Status, use non veteran`,
-            `- For Race, use "white"`,
-            `- For ethnicity, use "not hispanic or latino"`,
-            `- For Sex, if you can figure it out from the name, set it accordingly; otherwise, set to "Male".`,
-            `- For all ownership percentage fields, set to "100%".`,
-            `- For all fields which ask for date informations is current of, or today's date, set to today's date.`,
-            `- Map the business application data to the appropriate form fields.`,
-          ].join('\n')
-        );
+        // Simple direct mapping - only fill applicantname and yearbeginoperations
+        const formData: Record<string, any> = {};
+        if (applicantData.name) {
+          formData['applicantname'] = applicantData.name;
+        }
+        if (applicantData.yearFounded) {
+          formData['yearbeginoperations'] = String(applicantData.yearFounded);
+        }
         // Fill the PDF form
         const fillResult = await fillPDFForm(
           templatePath,
@@ -343,11 +436,18 @@ const uploadDocumentsToS3 = async (
         fileBuffer
       );
 
+      const fileType = getDefaultDocumentType(fileName);
+      if (!fileType) {
+        console.error(`Failed to get default document type for ${fileName}`);
+        return [];
+      }
+      
       uploadedDocs.push({
         fileName,
         s3Key: s3Result.key,
         s3Url: s3Result.url,
-        uploadedAt: new Date()
+        uploadedAt: new Date(),
+        fileType: fileType
       });
 
     } catch (error) {
@@ -405,12 +505,23 @@ export const handleSignedDocuments = async (
         doc.buffer
       );
 
+      const fileType = getUserProvidedDocumentType(doc.fileName);
+      if (!fileType) {
+        console.error(`Failed to get user provided document type for ${doc.fileName}`);
+        return {
+          status: ApplicationStatus.SIGNED,
+          message: 'Failed to get user provided document type',
+          documentsGenerated: []
+        };
+      }
+
       uploadedSignedDocs.push({
         fileName: doc.fileName,
         s3Key: s3Result.key,
         s3Url: s3Result.url,
         uploadedAt: new Date(),
-        signedAt: new Date()
+        signedAt: new Date(),
+        fileType: fileType
       });
     }
 
@@ -445,7 +556,7 @@ export const handleSignedDocuments = async (
 export const addUserProvidedDocuments = async (
   applicationId: string,
   documents: Array<{ fileName: string; buffer: Buffer; fileType: UserProvidedDocumentType }>
-): Promise<{ application: SBAApplication; uploadedDocuments: UserProvidedDocumentInfo[] }> => {
+): Promise<{ application: SBAApplication; uploadedDocuments: DocumentStorageInfo[] }> => {
   try {
     const application = await Application.findById(applicationId);
 
@@ -477,7 +588,7 @@ export const addUserProvidedDocuments = async (
       }
     }
 
-    const uploadedDocuments: UserProvidedDocumentInfo[] = [];
+    const uploadedDocuments: DocumentStorageInfo[] = [];
 
     for (const doc of documents) {
       const s3Result = await uploadDocumentWithRetry(
@@ -591,7 +702,8 @@ export const markUnsignedDocumentAsSigned = async (
     s3Key: signedS3Key ?? unsignedDoc.s3Key,
     s3Url: signedS3Url ?? unsignedDoc.s3Url,
     uploadedAt: unsignedDoc.uploadedAt,
-    signedAt: signedAtValue
+    signedAt: signedAtValue,
+    fileType: unsignedDoc.fileType
   };
 
   application.signedDocuments.push(signedDoc);
@@ -618,6 +730,96 @@ export const markUnsignedDocumentAsSigned = async (
     application.status = ApplicationStatus.AWAITING_SIGNATURE;
     application.signingStatus = 'pending';
   }
+
+  await application.save();
+
+  return application;
+};
+
+export const markDraftDocumentAsSigned = async (
+  applicationId: string,
+  options: {
+    fileName?: string;
+    s3Key?: string;
+    signedBy?: string;
+    signingProvider?: string;
+    signingRequestId?: string;
+    signedAt?: string | Date;
+    signedS3Key?: string;
+    signedS3Url?: string;
+  }
+): Promise<SBAApplication> => {
+  const {
+    fileName,
+    s3Key,
+    signedBy,
+    signingProvider,
+    signingRequestId,
+    signedAt,
+    signedS3Key,
+    signedS3Url
+  } = options;
+
+  if (!fileName && !s3Key) {
+    throw new Error('Document identifier (fileName or s3Key) is required');
+  }
+
+  const application = await Application.findById(applicationId);
+
+  if (!application) {
+    throw new Error('Application not found');
+  }
+
+  if (!application.draftDocuments || application.draftDocuments.length === 0) {
+    throw new Error('No draft documents found');
+  }
+
+  const draftIndex = application.draftDocuments.findIndex((doc: any) => {
+    if (s3Key && doc.s3Key === s3Key) {
+      return true;
+    }
+
+    if (fileName && doc.fileName === fileName) {
+      return true;
+    }
+
+    return false;
+  });
+
+  if (draftIndex === -1) {
+    throw new Error('Draft document not found');
+  }
+
+  // Update the signed field to true
+  (application.draftDocuments[draftIndex] as any).signed = true;
+
+  // Optionally update S3 key/url if new signed versions are provided
+  if (signedS3Key) {
+    (application.draftDocuments[draftIndex] as any).s3Key = signedS3Key;
+  }
+  if (signedS3Url) {
+    (application.draftDocuments[draftIndex] as any).s3Url = signedS3Url;
+  }
+
+  application.markModified('draftDocuments');
+
+  // Update signing metadata
+  if (signedBy) {
+    application.signedBy = signedBy;
+  }
+
+  if (signingProvider) {
+    application.signingProvider = signingProvider as any;
+  }
+
+  if (signingRequestId) {
+    application.signingRequestId = signingRequestId;
+  }
+
+  // Update signing status and date
+  const signedAtValue = signedAt ? new Date(signedAt) : new Date();
+  application.signingStatus = 'completed';
+  application.signedDate = signedAtValue;
 
   await application.save();
 
@@ -752,8 +954,8 @@ export const submitApplicationToBank = async (
       throw new Error('Application not found');
     }
 
-    if (application.signedDocuments.length === 0) {
-      throw new Error('No signed documents found');
+    if (application.draftDocuments && application.draftDocuments.some(doc => !doc.signed)) {
+      throw new Error('Some documents are not signed found');
     }
 
     // Get recommended banks based on applicant's credit score and years in business
@@ -769,17 +971,17 @@ export const submitApplicationToBank = async (
       throw new Error('No banks match the applicant requirements');
     }
 
-    // Download documents from S3 (signed + supporting)
-    const signedDocumentBuffers = await downloadDocumentsFromS3(
-      application.signedDocuments
-    );
 
     const userProvidedDocumentBuffers = application.userProvidedDocuments.length > 0
       ? await downloadDocumentsFromS3(application.userProvidedDocuments)
       : [];
 
+    const draftDocumentBuffers = application.draftDocuments && application.draftDocuments.length > 0
+      ? await downloadDocumentsFromS3(application.draftDocuments as DocumentStorageInfo[])
+      : [];
+
     const documentBuffers = [
-      ...signedDocumentBuffers,
+      ...draftDocumentBuffers,
       ...userProvidedDocumentBuffers
     ];
 

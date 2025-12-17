@@ -1,0 +1,9 @@
+{
+    "servers": {
+      "vapi-docs": {
+        "command": "npx",
+        "args": ["@vapi-ai/mcp-server"]
+      }
+    }
+  }
+  

@@ -14,6 +14,9 @@ import pollEmails from './services/poller.js';
 import mongoose from 'mongoose';
 import websocketService from './services/websocket.js';
 import { VapiClient } from "@vapi-ai/server-sdk"
+import { Application } from './models/Application.js';
+import { downloadDocument } from './services/s3Service.js';
+import { extractFormFieldValues, CHECKBOX_GROUPS, getGroupCheckboxes, CHECKBOX_GROUPS_413, getGroupCheckboxes413 } from './services/pdfFormProcessor.js';
 
 // Load environment variables
 dotenv.config();
@@ -43,7 +46,7 @@ app.use(cors({
     }
   }
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/torvely_ai';
@@ -301,7 +304,7 @@ app.post('/api/create-vapi-assistant', async (req, res) => {
   }
 });
 
-app.post('/vapi-ai', (req, res) => {
+app.post('/vapi-ai', async (req, res) => {
   try {
     const { message } = req.body;
 
@@ -311,10 +314,14 @@ app.post('/vapi-ai', (req, res) => {
 
     const messageType = message.type;
 
+    // Helper function to get call/chat ID with fallback
+    const getCallId: () => string | undefined = () => message.call?.id || message.chat?.id;
+    const callId = "lukahim"
+
     // Determine which rooms to broadcast to
     const rooms: string[] = ['global'];
-    if (message.call?.id) {
-      rooms.push(`${message.call.id}`);
+    if (callId) {
+      rooms.push(`${callId}`);
     }
 
     // Broadcast event to WebSocket clients
@@ -329,7 +336,7 @@ app.post('/vapi-ai', (req, res) => {
         const toolCalls = Array.isArray(message.toolCalls) ? message.toolCalls : [];
 
         // Process each tool call
-        const results = toolCalls.map((toolCall: any) => {
+        const results = await Promise.all(toolCalls.map(async (toolCall: any) => {
           const functionName = toolCall?.function?.name;
           const rawArgs = toolCall?.function?.arguments;
 
@@ -369,12 +376,32 @@ app.post('/vapi-ai', (req, res) => {
           console.log(`🔧 Function: ${functionName}`, functionArgs);
 
           switch (normalizedFunctionName) {
+            case 'captureOpenSBAForm': {
+              const { formType } = functionArgs as { formType?: string };
+              saveOrUpdateUserData(callId, { formType });
+              
+              websocketService.broadcast('open-sba-form', {
+                callId: callId,
+                timestamp: new Date().toISOString(),
+                fields: { formType },
+                source: 'toolfn-call'
+              }, rooms);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: `Got it! Form type "${formType ?? ''}" has been captured.`
+                })
+              };
+            }
+
             case 'captureUserName': {
               const { name } = functionArgs as { name?: string };
-              saveOrUpdateUserData(message.call?.id, { name });
+              saveOrUpdateUserData(callId, { name });
               
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { userName: name },
                 source: 'toolfn-call'
@@ -391,10 +418,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureBusinessName': {
               const { businessName } = functionArgs as { businessName?: string };
-              saveOrUpdateUserData(message.call?.id, { businessName });
+              saveOrUpdateUserData(callId, { businessName });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { businessName },
                 source: 'toolfn-call'
@@ -417,7 +444,7 @@ app.post('/vapi-ai', (req, res) => {
               };
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { loanAmount, loanType, loanPurpose },
                 source: 'toolfn-call'
@@ -434,10 +461,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureAnnualRevenue': {
               const { annualRevenue } = functionArgs as { annualRevenue?: number };
-              saveOrUpdateUserData(message.call?.id, { annualRevenue });
+              saveOrUpdateUserData(callId, { annualRevenue });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { annualRevenue },
                 source: 'toolfn-call'
@@ -454,10 +481,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureBusinessCashFlow': {
               const { businessCashFlow } = functionArgs as { businessCashFlow?: number };
-              saveOrUpdateUserData(message.call?.id, { businessCashFlow });
+              saveOrUpdateUserData(callId, { businessCashFlow });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { businessCashFlow },
                 source: 'toolfn-call'
@@ -474,10 +501,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureIndustryExperience': {
               const { industryExperience } = functionArgs as { industryExperience?: string };
-              saveOrUpdateUserData(message.call?.id, { industryExperience });
+              saveOrUpdateUserData(callId, { industryExperience });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { industryExperience },
                 source: 'toolfn-call'
@@ -494,10 +521,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureBusinessPhone': {
               const { businessPhone } = functionArgs as { businessPhone?: string };
-              saveOrUpdateUserData(message.call?.id, { businessPhone });
+              saveOrUpdateUserData(callId, { businessPhone });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { businessPhone },
                 source: 'toolfn-call'
@@ -514,10 +541,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureCreditScore': {
               const { creditScore } = functionArgs as { creditScore?: number };
-              saveOrUpdateUserData(message.call?.id, { creditScore });
+              saveOrUpdateUserData(callId, { creditScore });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { creditScore },
                 source: 'toolfn-call'
@@ -534,10 +561,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureYearFounded': {
               const { yearFounded } = functionArgs as { yearFounded?: number };
-              saveOrUpdateUserData(message.call?.id, { yearFounded });
+              saveOrUpdateUserData(callId, { yearFounded });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { yearFounded },
                 source: 'toolfn-call'
@@ -554,10 +581,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureUSCitizen': {
               const { usCitizen } = functionArgs as { usCitizen?: boolean | string };
-              saveOrUpdateUserData(message.call?.id, { usCitizen });
+              saveOrUpdateUserData(callId, { usCitizen });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { usCitizen },
                 source: 'toolfn-call'
@@ -574,10 +601,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureLoanPurpose': {
               const { loanPurpose } = functionArgs as { loanPurpose?: string | string[] };
-              saveOrUpdateUserData(message.call?.id, { loanPurpose });
+              saveOrUpdateUserData(callId, { loanPurpose });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { loanPurpose },
                 source: 'toolfn-call'
@@ -594,10 +621,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureRequestedLoanAmount': {
               const { requestedLoanAmount } = functionArgs as { requestedLoanAmount?: number };
-              saveOrUpdateUserData(message.call?.id, { requestedLoanAmount });
+              saveOrUpdateUserData(callId, { requestedLoanAmount });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { requestedLoanAmount },
                 source: 'toolfn-call'
@@ -614,10 +641,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureExistingDebtPayment': {
               const { existingDebtPayment } = functionArgs as { existingDebtPayment?: number };
-              saveOrUpdateUserData(message.call?.id, { existingDebtPayment });
+              saveOrUpdateUserData(callId, { existingDebtPayment });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { existingDebtPayment },
                 source: 'toolfn-call'
@@ -634,10 +661,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureMonthlyExpenses': {
               const { monthlyExpenses } = functionArgs as { monthlyExpenses?: number };
-              saveOrUpdateUserData(message.call?.id, { monthlyExpenses });
+              saveOrUpdateUserData(callId, { monthlyExpenses });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { monthlyExpenses },
                 source: 'toolfn-call'
@@ -654,10 +681,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureMonthlyRevenue': {
               const { monthlyRevenue } = functionArgs as { monthlyRevenue?: number };
-              saveOrUpdateUserData(message.call?.id, { monthlyRevenue });
+              saveOrUpdateUserData(callId, { monthlyRevenue });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { monthlyRevenue },
                 source: 'toolfn-call'
@@ -674,10 +701,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'capturePurchasePrice': {
               const { purchasePrice } = functionArgs as { purchasePrice?: number };
-              saveOrUpdateUserData(message.call?.id, { purchasePrice });
+              saveOrUpdateUserData(callId, { purchasePrice });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { purchasePrice },
                 source: 'toolfn-call'
@@ -694,10 +721,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureUserTypeNewApplication': {
               const { type } = functionArgs as { type?: string };
-              saveOrUpdateUserData(message.call?.id, { type });
+              saveOrUpdateUserData(callId, { type });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { type }, // This type can be either buyer or some other type, which signalizes that it's a non buyer
                 source: 'toolfn-call'
@@ -714,10 +741,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureAvailableCash': {
               const { availableCash } = functionArgs as { availableCash?: number };
-              saveOrUpdateUserData(message.call?.id, { availableCash });
+              saveOrUpdateUserData(callId, { availableCash });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { availableCash },
                 source: 'toolfn-call'
@@ -734,10 +761,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureSellingFinancingPercentage': {
               const { sellerFinancingPercentage } = functionArgs as { sellerFinancingPercentage?: number };
-              saveOrUpdateUserData(message.call?.id, { sellerFinancingPercentage });
+              saveOrUpdateUserData(callId, { sellerFinancingPercentage });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { sellerFinancingPercentage },
                 source: 'toolfn-call'
@@ -754,10 +781,10 @@ app.post('/vapi-ai', (req, res) => {
 
             case 'captureIfSellerFinancingOnStandbyExists': {
               const { sellerFinancingOnStandbyExists } = functionArgs as { sellerFinancingOnStandbyExists?: boolean };
-              saveOrUpdateUserData(message.call?.id, { sellerFinancingOnStandbyExists });
+              saveOrUpdateUserData(callId, { sellerFinancingOnStandbyExists });
 
               websocketService.broadcast('form-field-update', {
-                callId: message.call?.id,
+                callId: callId,
                 timestamp: new Date().toISOString(),
                 fields: { sellerFinancingOnStandbyExists },
                 source: 'toolfn-call'
@@ -772,6 +799,330 @@ app.post('/vapi-ai', (req, res) => {
               };
             }
 
+            case 'captureApplicationId': {
+              const { applicationId } = functionArgs as { applicationId?: string };
+              console.log("Capturing applicationId:")
+              if (!applicationId) {
+                return {
+                  toolCallId: toolCall.id,
+                  result: JSON.stringify({ success: false, error: 'applicationId is required' })
+                };
+              }
+
+              saveOrUpdateUserData(callId, { applicationId });
+              console.log(`📝 Stored applicationId: ${applicationId} for call ${callId}`);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({ success: true, applicationId })
+              };
+            }
+
+            case 'getFilledFields': {
+              const { applicationId } = functionArgs as { applicationId?: string };
+              console.log("Getting filled fields for applicationId:", applicationId);
+
+              if (!applicationId) {
+                return {
+                  toolCallId: toolCall.id,
+                  result: JSON.stringify({
+                    success: false,
+                    error: 'applicationId is required'
+                  })
+                };
+              }
+
+              try {
+                const application = await Application.findById(applicationId);
+                if (!application) {
+                  return {
+                    toolCallId: toolCall.id,
+                    result: JSON.stringify({
+                      success: false,
+                      error: 'Application not found'
+                    })
+                  };
+                }
+
+                // Find both draft documents
+                const doc1919 = application.draftDocuments?.find((d: any) => d.fileType === 'SBA_1919');
+                const doc413 = application.draftDocuments?.find((d: any) => d.fileType === 'SBA_413');
+
+                // Helper function to process a single form
+                const processForm = async (document: any, formType: 'SBA_1919' | 'SBA_413') => {
+                  try {
+                    const pdfBuffer = await downloadDocument(document.s3Key);
+                    const result = await extractFormFieldValues(pdfBuffer);
+                    console.log(`📋 [${formType}] Retrieved: ${result.filledFields.length} filled, ${result.emptyFields.length} empty`);
+                    return result;
+                  } catch (error) {
+                    console.warn(`⚠️ Could not process ${formType}:`, error);
+                    return { filledFields: [], emptyFields: [], allFields: {} };
+                  }
+                };
+
+                // Process both forms in parallel
+                const [result1919, result413] = await Promise.all([
+                  doc1919 ? processForm(doc1919, 'SBA_1919') : Promise.resolve({ filledFields: [], emptyFields: [], allFields: {} }),
+                  doc413 ? processForm(doc413, 'SBA_413') : Promise.resolve({ filledFields: [], emptyFields: [], allFields: {} })
+                ]);
+
+                // Build dual-form response
+                const response = {
+                  sba1919: result1919,
+                  sba413: result413
+                };
+
+                // Store in userDataStore for captureHighlightField auto-advance
+                saveOrUpdateUserData(callId, {
+                  emptyFields: result1919.emptyFields,        // Form 1919 (backward compat)
+                  emptyFields413: result413.emptyFields,      // Form 413
+                  filledFields: result1919.filledFields,      // Optional: cache filled fields
+                  filledFields413: result413.filledFields,    // Optional: cache filled fields
+                  applicationId
+                });
+
+                console.log(`✅ Retrieved fields for both forms - Application ${applicationId}`);
+                console.log(`   Form 1919: ${result1919.filledFields.length} filled, ${result1919.emptyFields.length} empty`);
+                console.log(`   Form 413: ${result413.filledFields.length} filled, ${result413.emptyFields.length} empty`);
+
+                // Return JSON string for Vapi to parse
+                return {
+                  toolCallId: toolCall.id,
+                  result: JSON.stringify(response)
+                };
+              } catch (error) {
+                console.error('❌ Error getting filled fields:', error);
+                return {
+                  toolCallId: toolCall.id,
+                  result: JSON.stringify({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to get filled fields'
+                  })
+                };
+              }
+            }
+
+            case 'captureHighlightField': {
+              const { field, text, formType } = functionArgs as {
+                field?: string;
+                text?: string;
+                formType?: 'SBA_1919' | 'SBA_413'
+              };
+
+              // Default to SBA_1919 if not specified
+              const activeFormType = formType || 'SBA_1919';
+              const formLabel = activeFormType === 'SBA_413' ? '[Form 413]' : '[Form 1919]';
+
+              if (!field) {
+                return {
+                  toolCallId: toolCall.id,
+                  result: JSON.stringify({
+                    success: false,
+                    error: 'Field name is required'
+                  })
+                };
+              }
+
+              // Select appropriate field order based on form type
+              const fieldOrder = activeFormType === 'SBA_413' ? FORM_413_FIELD_ORDER : FORM_FIELD_ORDER;
+              const emptyFieldsKey = activeFormType === 'SBA_413' ? 'emptyFields413' : 'emptyFields';
+              const filledFieldsKey = activeFormType === 'SBA_413' ? 'filledFieldsThisSession413' : 'filledFieldsThisSession';
+              const documentFileType = activeFormType === 'SBA_413' ? 'SBA_413' : 'SBA_1919';
+
+              // Broadcast highlight event for current field
+              websocketService.broadcast('highlight-fields', {
+                callId: callId,
+                timestamp: new Date().toISOString(),
+                field,
+                text,
+                formType: activeFormType,
+                source: 'vapi-tool-call'
+              }, rooms);
+
+              console.log(`✨ ${formLabel} Highlighted field: ${field} with text: "${text || 'none'}" for call ${callId}`);
+
+              // Auto-highlight next field if we filled a field (text provided)
+              if (text) {
+                console.log(`🚀 ${formLabel} Attempting auto-advance after filling field: ${field}, for the call: ${callId}`);
+                const userData = getUserData(callId);
+                console.log("userData")
+                console.log(userData)
+                let emptyFields = userData?.[emptyFieldsKey] as string[] | undefined;
+                const applicationId = userData?.applicationId as string | undefined;
+
+                // If we have applicationId but no emptyFields, fetch from PDF
+                if (!emptyFields && applicationId) {
+                  try {
+                    const application = await Application.findById(applicationId);
+                    if (application) {
+                      const document = application.draftDocuments?.find((d: any) => d.fileType === documentFileType);
+                      if (document) {
+                        const pdfBuffer = await downloadDocument(document.s3Key);
+                        const fieldData = await extractFormFieldValues(pdfBuffer);
+                        console.log(`${formLabel} fieldData`)
+                        console.log(fieldData)
+                        emptyFields = fieldData.emptyFields;
+                        // Cache for future calls
+                        saveOrUpdateUserData(callId, { [emptyFieldsKey]: emptyFields });
+                        console.log(`📋 ${formLabel} Fetched empty fields for auto-advance: ${emptyFields.length} empty fields`);
+                      }
+                    }
+                  } catch (err) {
+                    console.warn(`${formLabel} Could not fetch PDF state for auto-advance:`, err);
+                  }
+                }
+
+                // Track the current field as filled for this session
+                const filledFieldsThisSession = (userData?.[filledFieldsKey] as string[]) || [];
+                if (!filledFieldsThisSession.includes(field)) {
+                  filledFieldsThisSession.push(field);
+                  saveOrUpdateUserData(callId, { [filledFieldsKey]: filledFieldsThisSession });
+                }
+
+                let nextField: string | undefined;
+                const currentIndex = fieldOrder.indexOf(field);
+
+                // Find next empty field (check both PDF empty fields and session-filled fields)
+                for (let i = currentIndex + 1; i < fieldOrder.length; i++) {
+                  const candidateField = fieldOrder[i];
+                  const isEmptyInPdf = !emptyFields || emptyFields.includes(candidateField);
+                  console.log(`${formLabel} Empty fields in the pdf:`)
+                  console.log(emptyFields)
+                  const notFilledThisSession = !filledFieldsThisSession.includes(candidateField);
+                  if (isEmptyInPdf && notFilledThisSession) {
+                    console.log(`➡️ ${formLabel} Next field to highlight: ${candidateField}`);
+                    nextField = candidateField;
+                    break;
+                  }
+                }
+
+                // Broadcast highlight for next field (if exists)
+                if (nextField) {
+                  console.log(`🔜 ${formLabel} Auto-advancing to next field: ${nextField}`);
+                  websocketService.broadcast('highlight-fields', {
+                    callId: callId,
+                    timestamp: new Date().toISOString(),
+                    field: nextField,
+                    formType: activeFormType,
+                    source: 'auto-advance'
+                  }, rooms);
+                  console.log(`➡️ ${formLabel} Auto-highlighted next field: ${nextField}`);
+                }
+              }
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: `${formLabel} Field "${field}" highlighted successfully${text ? ' with text' : ''}.`
+                })
+              };
+            }
+
+            case 'captureCheckboxSelection': {
+              let { group, value, formType } = functionArgs as {
+                group?: string;
+                value?: string;
+                formType?: 'SBA_1919' | 'SBA_413'
+              };
+
+              // Default to SBA_1919 if not specified
+              const activeFormType = formType || 'SBA_1919';
+              const formLabel = activeFormType === 'SBA_413' ? '[Form 413]' : '[Form 1919]';
+
+              console.log(`${formLabel} Checkbox capture args (raw):`, { group, value });
+
+              // Normalize: trim whitespace and newlines
+              group = group?.trim();
+              value = value?.trim();
+
+              console.log(`${formLabel} Checkbox capture args (normalized):`, { group, value });
+
+              // Validate required parameters
+              if (!group || !value) {
+                console.log(`⚠️ ${formLabel} Missing group or value for checkbox capture`);
+                return {
+                  toolCallId: toolCall.id,
+                  result: JSON.stringify({
+                    success: false,
+                    error: 'Both group and value are required'
+                  })
+                };
+              }
+
+              // Select appropriate checkbox groups based on form type
+              const checkboxGroups = activeFormType === 'SBA_413' ? CHECKBOX_GROUPS_413 : CHECKBOX_GROUPS;
+              const getCheckboxesFn = activeFormType === 'SBA_413' ? getGroupCheckboxes413 : getGroupCheckboxes;
+
+              // Validate group exists in CHECKBOX_GROUPS
+              const groupConfig = checkboxGroups[group];
+              if (!groupConfig) {
+                console.log(`⚠️ ${formLabel} Unknown checkbox group: ${group}`);
+                return {
+                  toolCallId: toolCall.id,
+                  result: JSON.stringify({
+                    success: false,
+                    error: `Unknown checkbox group: ${group}. Available groups: ${Object.keys(checkboxGroups).join(', ')}`
+                  })
+                };
+              }
+
+              // Validate value exists in group options
+              const fieldName = groupConfig.options[value];
+              console.log("value:", value)
+              if (!fieldName) {
+                console.log(`⚠️ ${formLabel} Unknown value '${value}' for group '${group}'`);
+                return {
+                  toolCallId: toolCall.id,
+                  result: JSON.stringify({
+                    success: false,
+                    error: `Unknown value '${value}' for group '${group}'. Available values: ${Object.keys(groupConfig.options).join(', ')}`
+                  })
+                };
+              }
+
+              console.log(`📋 ${formLabel} Capturing checkbox selection: ${group} = ${value} -> field: ${fieldName}`);
+
+              // Store PDF field name in userDataStore
+              saveOrUpdateUserData(callId, {
+                [fieldName]: true
+              });
+
+              // Get all checkboxes in group for exclusive groups
+              let groupCheckboxes: string[] | undefined = undefined;
+              if (groupConfig.exclusive) {
+                groupCheckboxes = getCheckboxesFn(group);
+                console.log(`📋 ${formLabel} Exclusive group - all checkboxes:`, groupCheckboxes);
+              }
+
+              console.log(`${formLabel} message call id:`, callId);
+              console.log(`${formLabel} broadcasting to rooms:`, rooms);
+
+              // Broadcast to WebSocket
+              websocketService.broadcast(
+                'checkbox-selection',
+                {
+                  callId: callId,
+                  timestamp: new Date().toISOString(),
+                  fields: { [fieldName]: true },
+                  fieldType: 'checkbox',
+                  formType: activeFormType,
+                  groupCheckboxes,
+                  source: 'toolfn-call'
+                },
+                rooms
+              );
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: `${formLabel} Captured ${group}: ${value} (field: ${fieldName})`
+                })
+              };
+            }
+
             default:
               console.warn(`⚠️ Unknown function: ${functionName}`);
               return {
@@ -782,8 +1133,8 @@ app.post('/vapi-ai', (req, res) => {
                 })
               };
           }
-        });
-        
+        }));
+
         // IMPORTANT: Return results to Vapi
         return res.json({ results });
       }
@@ -793,14 +1144,14 @@ app.post('/vapi-ai', (req, res) => {
 
       case 'transcript':
         if (message.role === 'user' && message.transcript) {
-          extractFormDataFromTranscript(message.transcript, message.call?.id, rooms);
+          extractFormDataFromTranscript(message.transcript, callId, rooms);
         }
         break;
 
       case 'speech-update': {
         const transcript = message.transcript ?? message.output?.transcript ?? '';
         if (transcript) {
-          extractFormDataFromTranscript(transcript, message.call?.id, rooms);
+          extractFormDataFromTranscript(transcript, callId, rooms);
         }
         break;
       }
@@ -830,9 +1181,221 @@ app.post('/vapi-ai', (req, res) => {
   }
 });
 
+// Form field order for auto-highlighting next field (Form 1919)
+const FORM_FIELD_ORDER = [
+  "applicantname",
+  "operatingnbusname",
+  "dba",
+  "busTIN",
+  "PrimarIndustry",
+  "busphone",
+  "UniqueEntityID",
+  "yearbeginoperations",
+  "busAddr",
+  "projAddr",
+  "pocName",
+  "pocEmail",
+  "existEmp",
+  "fteJobs",
+  "debtAmt",
+  "purchAmt",
+  "ownName1",
+  "ownTitle1",
+  "ownPerc1",
+  "ownTin1",
+  "ownHome1",
+  "ownPos",
+  "EquipAmt",
+  "otherAmt2",
+  "otherAmt1",
+  "invAmt",
+  "busAcqAmt",
+  "capitalAmt",
+  "ownName",
+  "expSalesTot",
+  "expCtry1",
+  "expCtry2",
+  "expCtry3",
+  "sigDate",
+  "repName",
+  "repTitle",
+  "fteCreate",
+  "other1spec",
+  "other2spec"
+];
+
+// Form 413 (Personal Financial Statement) field order
+const FORM_413_FIELD_ORDER = [
+  // Personal Info (8 fields)
+  "Name",
+  "Business Phone xxx-xxx-xxxx",
+  "Home Address",
+  "Home Phone xxx-xxx-xxxx",
+  "City, State, & Zip Code",
+  "Business Name of Applicant/Borrower",
+  "Business Address (if different than home address)",
+  "This information is current as of month/day/year",
+
+  // Assets (10 fields - TotalAssets auto-calculated)
+  "Cash on Hand & in banks",
+  "Savings Accounts",
+  "IRA or Other Retirement Account",
+  "Accounts and Notes Receivable",
+  "Life Insurance - Cash Surrender Value Only",
+  "Stocks and Bonds",
+  "Real Estate",
+  "Automobiles",
+  "Other Personal Property",
+  "Other Assets",
+
+  // Liabilities (10 fields - TotalLiabilities/Net Worth auto-calculated)
+  "Accounts Payable",
+  "Notes Payable to Banks and Others",
+  "Installment Account (Auto)",
+  "Installment Account - Monthly Payments (Auto)",
+  "Installment Account (Other)",
+  "Installment Account - Monthly Payments (Other)",
+  "Loan(s) Against Life Insurance",
+  "Mortgages on Real Estate",
+  "Unpaid Taxes",
+  "Other Liabilities",
+
+  // Income (4 fields)
+  "Salary",
+  "Net Investment Income",
+  "Real Estate Income",
+  "Other Income",
+
+  // Contingent Liabilities (4 fields)
+  "As Endorser or Co-Maker",
+  "Legal Claims and Judgements",
+  "Provision for Federal Income Tax",
+  "Other Special Debt",
+
+  // Description fields (5 fields)
+  "Description of Other Income in Section 1: Alimony or child support payments should not be disclosed in Other Income unless it is desired to have such payments counted toward total incomeRow1",
+  "Section 5  Other Personal Property and Other Assets: Describe and if any is pledged as security state name and address of lien holder amount of lien terms of payment and if delinquent describe delinquencyRow1",
+  "Section 6 Unpaid Taxes Describe in detail as to type to whom payable when due amount and to what property if any a tax lien attachesRow1",
+  "Section 7 Other Liabilities Describe in detailRow1",
+  "Section 8 Life Insurance Held Give face amount and cash surrender value of policies  name of insurance company and BeneficiariesRow1",
+
+  // Signatures (6 fields)
+  "Date",
+  "Print Name",
+  "Social Security No",
+  "Date2",
+  "Print Name_2",
+  "Social Security No_2"
+];
+
+// Form 413 table field templates for repeating sections
+const FORM_413_TABLES = {
+  notesPayable: {
+    rowCount: 5,
+    suffix: "Row", // Field names end with "Row1", "Row2", etc.
+    fields: [
+      "Names and Addresses of Noteholders",
+      "Original Balance",
+      "Current Balance",
+      "Payment Amount",
+      "Frequency monthly etc",
+      "How Secured or Endorsed Type of Collateral"
+    ]
+  },
+  stocksBonds: {
+    rowCount: 4,
+    suffix: "Row",
+    fields: [
+      "Number of Shares",
+      "Name of Securities",
+      "Cost",
+      "Market Value QuotationExchange",
+      "Date of QuotationExchange",
+      "Total Value"
+    ]
+  },
+  realEstate: {
+    rowCount: 3,
+    prefix: "Property ", // Field names start with "Property A", "Property B", "Property C"
+    properties: ["A", "B", "C"],
+    fields: [
+      "Type of Real Estate eg Primary Residence Other Residence Rental Property Land etc",
+      "Address",
+      "Date Purchased_es_:date",
+      "Original Cost",
+      "Present Market Value",
+      "Name  Address of Mortgage Holder",
+      "Mortgage Account Number",
+      "Mortgage Balance",
+      "Amount of Payment per MonthYear",
+      "Status of Mortgage"
+    ]
+  }
+};
+
+// Form 413 asset fields for auto-calculation
+const FORM_413_ASSET_FIELDS = [
+  "Cash on Hand & in banks",
+  "Savings Accounts",
+  "IRA or Other Retirement Account",
+  "Accounts and Notes Receivable",
+  "Life Insurance - Cash Surrender Value Only",
+  "Stocks and Bonds",
+  "Real Estate",
+  "Automobiles",
+  "Other Personal Property",
+  "Other Assets"
+];
+
+// Form 413 liability fields for auto-calculation
+const FORM_413_LIABILITY_FIELDS = [
+  "Accounts Payable",
+  "Notes Payable to Banks and Others",
+  "Installment Account (Auto)",
+  "Installment Account (Other)",
+  "Loan(s) Against Life Insurance",
+  "Mortgages on Real Estate",
+  "Unpaid Taxes",
+  "Other Liabilities"
+];
+
 // Helper function to save or update user data
 // This maintains one record per call and updates it as data comes in
 const userDataStore = new Map(); // In-memory store (use database in production)
+
+// Calculate Form 413 totals (assets, liabilities, net worth)
+function calculateForm413Totals(callId: string | undefined, fieldName: string): Record<string, number> {
+  const userData = getUserData(callId);
+  if (!userData) return {};
+
+  const calculations: Record<string, number> = {};
+
+  if (FORM_413_ASSET_FIELDS.includes(fieldName)) {
+    const totalAssets = FORM_413_ASSET_FIELDS.reduce((sum, f) => sum + (parseFloat(userData[f]) || 0), 0);
+    calculations["TotalAssets"] = totalAssets;
+    saveOrUpdateUserData(callId, { "TotalAssets": totalAssets });
+
+    // Recalculate net worth if liabilities exist
+    const totalLiabilities = userData["TotalLiabilities"] || 0;
+    if (totalLiabilities > 0) {
+      calculations["Net Worth"] = totalAssets - totalLiabilities;
+      saveOrUpdateUserData(callId, { "Net Worth": totalAssets - totalLiabilities });
+    }
+  }
+
+  if (FORM_413_LIABILITY_FIELDS.includes(fieldName)) {
+    const totalLiabilities = FORM_413_LIABILITY_FIELDS.reduce((sum, f) => sum + (parseFloat(userData[f]) || 0), 0);
+    const totalAssets = userData["TotalAssets"] || 0;
+    calculations["TotalLiabilities"] = totalLiabilities;
+    calculations["Net Worth"] = totalAssets - totalLiabilities;
+    saveOrUpdateUserData(callId, {
+      "TotalLiabilities": totalLiabilities,
+      "Net Worth": totalAssets - totalLiabilities
+    });
+  }
+
+  return calculations;
+}
 
 function saveOrUpdateUserData(callId: string | undefined, data: any) {
   if (!callId) {
@@ -853,9 +1416,8 @@ function saveOrUpdateUserData(callId: string | undefined, data: any) {
     updatedAt: new Date()
   };
   
+  console.log(`Saving user data for call ${callId}:`, updated);
   userDataStore.set(callId, updated);
-  
-  console.log('💾 Saved user data:', updated);
   
   // TODO: Save to actual database
   // await UserData.updateOne({ callId }, updated, { upsert: true });
@@ -864,7 +1426,8 @@ function saveOrUpdateUserData(callId: string | undefined, data: any) {
 }
 
 // Optional: Get all captured data for a call
-function getUserData(callId: string) {
+function getUserData(callId: string | undefined) {
+  if (!callId) return
   return userDataStore.get(callId);
 }
 
@@ -883,14 +1446,14 @@ app.post('/api/chat', async (req, res) => {
     }
 
     const response = await processQuery(message);
-    
-    res.json({ 
+
+    res.json({
       response,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
     console.error('Chat endpoint error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Internal server error',
       message: 'Failed to process your request'
     });

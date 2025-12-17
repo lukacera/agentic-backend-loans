@@ -10,5 +10,6 @@
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "apiKeyHelper": "bash ~/.claude/get-api-key.sh"
 }
