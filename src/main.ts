@@ -820,7 +820,8 @@ app.post('/vapi-ai', async (req, res) => {
 
             case 'getFilledFields': {
               const { applicationId } = functionArgs as { applicationId?: string };
-              console.log("Getting filled fields for applicationId:", applicationId)
+              console.log("Getting filled fields for applicationId:", applicationId);
+
               if (!applicationId) {
                 return {
                   toolCallId: toolCall.id,
@@ -843,42 +844,61 @@ app.post('/vapi-ai', async (req, res) => {
                   };
                 }
 
-                const document = application.draftDocuments?.find((d: any) => d.fileType === 'SBA_1919');
-                if (!document) {
-                  return {
-                    toolCallId: toolCall.id,
-                    result: JSON.stringify({
-                      success: false,
-                      error: 'No draft document found'
-                    })
-                  };
-                }
+                // Find both draft documents
+                const doc1919 = application.draftDocuments?.find((d: any) => d.fileType === 'SBA_1919');
+                const doc413 = application.draftDocuments?.find((d: any) => d.fileType === 'SBA_413');
 
-                const pdfBuffer = await downloadDocument(document.s3Key);
-                const { filledFields, emptyFields } = await extractFormFieldValues(pdfBuffer);
-                
-                console.log("message:")
-                console.log(message)
-                // Store emptyFields in userDataStore for this call (used by captureHighlightField)
+                // Helper function to process a single form
+                const processForm = async (document: any, formType: 'SBA_1919' | 'SBA_413') => {
+                  try {
+                    const pdfBuffer = await downloadDocument(document.s3Key);
+                    const result = await extractFormFieldValues(pdfBuffer);
+                    console.log(`📋 [${formType}] Retrieved: ${result.filledFields.length} filled, ${result.emptyFields.length} empty`);
+                    return result;
+                  } catch (error) {
+                    console.warn(`⚠️ Could not process ${formType}:`, error);
+                    return { filledFields: [], emptyFields: [], allFields: {} };
+                  }
+                };
+
+                // Process both forms in parallel
+                const [result1919, result413] = await Promise.all([
+                  doc1919 ? processForm(doc1919, 'SBA_1919') : Promise.resolve({ filledFields: [], emptyFields: [], allFields: {} }),
+                  doc413 ? processForm(doc413, 'SBA_413') : Promise.resolve({ filledFields: [], emptyFields: [], allFields: {} })
+                ]);
+
+                // Build dual-form response
+                const response = {
+                  sba1919: result1919,
+                  sba413: result413
+                };
+
+                // Store in userDataStore for captureHighlightField auto-advance
                 saveOrUpdateUserData(callId, {
-                  emptyFields,
+                  emptyFields: result1919.emptyFields,        // Form 1919 (backward compat)
+                  emptyFields413: result413.emptyFields,      // Form 413
+                  filledFields: result1919.filledFields,      // Optional: cache filled fields
+                  filledFields413: result413.filledFields,    // Optional: cache filled fields
                   applicationId
                 });
 
-                console.log(`📋 Retrieved filled fields for application ${applicationId}: ${filledFields.length} filled, ${emptyFields.length} empty`);
+                console.log(`✅ Retrieved fields for both forms - Application ${applicationId}`);
+                console.log(`   Form 1919: ${result1919.filledFields.length} filled, ${result1919.emptyFields.length} empty`);
+                console.log(`   Form 413: ${result413.filledFields.length} filled, ${result413.emptyFields.length} empty`);
 
-                // Return as a simple string for Vapi
-                const filledFieldsStr = filledFields.join(', ');
-                const emptyFieldsStr = emptyFields.join(', ');
+                // Return JSON string for Vapi to parse
                 return {
                   toolCallId: toolCall.id,
-                  result: `Filled fields: ${filledFieldsStr}. Empty fields: ${emptyFieldsStr}.`
+                  result: JSON.stringify(response)
                 };
               } catch (error) {
-                console.error('Error getting filled fields:', error);
+                console.error('❌ Error getting filled fields:', error);
                 return {
                   toolCallId: toolCall.id,
-                  result: `Error: ${error instanceof Error ? error.message : 'Failed to get filled fields'}`
+                  result: JSON.stringify({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to get filled fields'
+                  })
                 };
               }
             }
@@ -1050,6 +1070,7 @@ app.post('/vapi-ai', async (req, res) => {
 
               // Validate value exists in group options
               const fieldName = groupConfig.options[value];
+              console.log("value:", value)
               if (!fieldName) {
                 console.log(`⚠️ ${formLabel} Unknown value '${value}' for group '${group}'`);
                 return {
