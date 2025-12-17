@@ -20,11 +20,11 @@
   - `docs.ts`: document processing endpoints.
 - **Services (`src/services`)**:
   - `applicationService.ts`: canonical pipeline for SBA applications; generates forms, uploads to S3, tracks status transitions, handles signed docs, user uploads, bank submissions, and SBA eligibility calculators. Includes both buyer and owner flow logic with distinct field requirements. Supports draft applications with PDF generation and conversion to full applications.
-  - `pdfFormProcessor.ts` plus `documentProcessor.ts`: extract PDF form fields, map applicant data via the DocumentAgent, fill forms with `pdf-lib`, and persist metadata to disk.
+  - `pdfFormProcessor.ts` plus `documentProcessor.ts`: extract PDF form fields, map applicant data via the DocumentAgent, fill forms with `pdf-lib`, and persist metadata to disk. Includes `CHECKBOX_GROUPS` configuration defining checkbox field groups (entity, veteranStatus, sex, race, ethnicity, specialOwnershipType) with user-friendly values mapped to PDF field names, plus `getGroupCheckboxes()` helper for retrieving all fields in a group.
   - `emailFetcher.ts` -> `emailHandler.ts` -> `emailSender.ts`: polls IMAP, summarizes messages with the EmailAgent, optionally responds via SMTP, and stores structured artifacts under `processed/emails`.
   - `poller.ts`: schedules inbox polling (default every 20 seconds) and hands replies to the sender.
   - `s3Service.ts`: wraps AWS SDK with retrying uploads, presigned URLs, delete/list helpers. Keys follow `applications/{applicationId}/{fileName}` for standard docs and `drafts/{applicationId}/{fileName}` for draft PDFs.
-  - `websocket.ts`: manages Socket.IO rooms (`global` plus per-call rooms), rebroadcasts Vapi events, and supports transcript-derived form field pushes. Emits events like `form-field-update`, `calculate-chances`, `form-reveal`, `draft-updated`, and `highlight-fields`.
+  - `websocket.ts`: manages Socket.IO rooms (`global` plus per-call rooms), rebroadcasts Vapi events, and supports transcript-derived form field pushes. Emits events like `form-field-update`, `calculate-chances`, `form-reveal`, `draft-updated`, `highlight-fields`, and `checkbox-selection`.
 - **Agents (`src/agents`)**: `BaseAgent.ts` centralizes LangChain setup via `processWithLLM`. `DocumentAgent` and `EmailAgent` build on it for domain-specific prompts and storage helpers. New LLM flows should route through these helpers for consistent logging and throttling.
 - **Models (`src/models`)**: Mongoose schemas (`Application.ts`, `Bank.ts`) aligned with TypeScript contracts in `src/types/index.ts`. The `Application` schema supports both `owner` and `buyer` user types with type-specific fields, loan chance scoring, draft documents, and extensive document tracking (unsigned, signed, user-provided, draft). Update enums (for example, `ApplicationStatus`) whenever introducing new lifecycle states. Current statuses include: `draft`, `submitted`, `processing`, `documents_generated`, `awaiting_signature`, `signed`, `sent_to_bank`, `under_review`, `approved`, `rejected`, `cancelled`.
 - **Utilities (`src/utils`)**: `formatters.ts` formats application status snapshots for voice agent responses.
@@ -49,8 +49,9 @@
   - `pollEmails()` uses `emailFetcher` to retrieve unread IMAP messages, `emailHandler` to craft AI replies with the EmailAgent, and `emailSender` (nodemailer) to send responses. Artifacts are persisted under `processed/emails/{drafts|threads}` for audit.
 - **Voice and WebSocket Sync**
   - `POST /api/create-vapi-assistant`: creates Vapi assistant with predefined loan specialist persona using OpenAI `gpt-5-mini` model, configured with 8+ tool IDs for various capture functions (name, business info, financials, etc.).
-  - `POST /vapi-ai`: webhook receiver handling Vapi events including `tool-calls`, `transcript`, `speech-update`, `end-of-call-report`. Implements extensive tool-call handlers for:
-    - **Capture tools**: `captureUserName`, `captureBusinessName`, `capturePhoneNumber`, `captureCreditScore`, `captureYearFounded`, `captureAnnualRevenue`, `captureMonthlyRevenue/Expenses`, `captureRequestedLoanAmount`, `capturePurchasePrice`, `captureAvailableCash`, `captureIndustryExperience`, `captureLoanPurpose`, `captureUSCitizen`, and more.
+  - `POST /vapi-ai`: webhook receiver handling Vapi events including `tool-calls`, `transcript`, `speech-update`, `end-of-call-report`. Uses `message.call?.id || message.chat?.id` fallback for identifying call/chat sessions. Implements extensive tool-call handlers for:
+    - **Capture tools**: `captureUserName`, `captureBusinessName`, `capturePhoneNumber`, `captureCreditScore`, `captureYearFounded`, `captureAnnualRevenue`, `captureMonthlyRevenue/Expenses`, `captureRequestedLoanAmount`, `capturePurchasePrice`, `captureAvailableCash`, `captureIndustryExperience`, `captureLoanPurpose`, `captureUSCitizen`, and more. All values are trimmed for whitespace/newlines before processing.
+    - **Checkbox tool**: `captureCheckboxSelection` handles checkbox field capture with validation against `CHECKBOX_GROUPS` config. Supports exclusive groups (entity, veteranStatus, sex, race, ethnicity) where only one can be selected, and non-exclusive groups (specialOwnershipType) allowing multiple selections. Maps user-friendly values to PDF field names and broadcasts `checkbox-selection` event with `groupCheckboxes` array for exclusive groups, enabling frontend to uncheck other options.
     - **Highlight tool**: `captureHighlightField` broadcasts field highlighting events to frontend.
     - **Eligibility calculator**: Integrated via `POST /api/applications/calculate-chances` which creates draft application, generates PDFs, and broadcasts results.
   - In-memory `userDataStore` maintains call-specific data; aggregated via `saveOrUpdateUserData()` function. TODO in code suggests moving to persistent database.
@@ -74,7 +75,17 @@
 - Routes prefer TypeScript enums like `ApplicationStatus`, `UserProvidedDocumentType` (taxReturn, L&P), and `DefaultDocumentType` (SBA_1919, SBA_413); update both TypeScript definitions and Mongoose schemas together.
 - Uploads use multer (memory storage) with PDF-only validation. Keep file-size limits (`10 MB`) aligned between front-end and server.
 - Document retrieval endpoints support `expiresIn` query parameter (default 3600s) for presigned URL expiration control.
-- Tool-call argument extraction uses helper functions (`extractToolCallArguments`, `extractBusinessName`, `extractBusinessPhone`) to handle varying payload structures from Vapi.
+- Tool-call argument extraction uses helper functions (`extractToolCallArguments`, `extractBusinessName`, `extractBusinessPhone`) to handle varying payload structures from Vapi. All string arguments are trimmed for whitespace/newlines to handle malformed input.
+
+## Checkbox Selection System
+- **Configuration**: `CHECKBOX_GROUPS` in `pdfFormProcessor.ts` defines 6 checkbox groups with user-friendly values mapped to PDF field names:
+  - **Exclusive groups** (only one selectable): `entity` (LLC, C-Corp, S-Corp, Partnership, Sole Proprietor, Other), `veteranStatus` (5 options), `sex` (Male, Female), `race` (6 options), `ethnicity` (3 options)
+  - **Non-exclusive group** (multiple selectable): `specialOwnershipType` (ESOP, 401k, Cooperative, Native American Tribe, Other)
+- **Vapi Integration**: `captureCheckboxSelection(group, value)` tool validates group and value, maps to PDF field name, stores in `userDataStore`, and broadcasts `checkbox-selection` WebSocket event
+- **WebSocket Event Structure**: `{ callId, timestamp, fields: { [pdfFieldName]: true }, fieldType: 'checkbox', groupCheckboxes?: string[], source: 'toolfn-call' }`
+  - `groupCheckboxes` array included only for exclusive groups, allowing frontend to uncheck all before checking selected one
+  - Non-exclusive groups omit `groupCheckboxes`, enabling multiple simultaneous selections
+- **Test Endpoint**: `POST /api/test-checkbox` mimics Vapi webhook structure for testing checkbox selection without voice calls
 
 ## AI Usage Guidelines
 - Always access OpenAI via the LangChain helpers in `src/agents`. `processWithLLM` ensures consistent prompts, logging, and timeout handling.
@@ -119,7 +130,8 @@
 
 ### Voice & Vapi Integration
 - `POST /api/create-vapi-assistant` - Create Vapi voice assistant
-- `POST /vapi-ai` - Webhook endpoint for Vapi events and tool calls
+- `POST /vapi-ai` - Webhook endpoint for Vapi events and tool calls (supports both call and chat sessions)
+- `POST /api/test-checkbox` - Test endpoint for checkbox selection (mimics Vapi structure)
 
 ### Other
 - `GET /health` - Health check
