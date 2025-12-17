@@ -16,7 +16,7 @@ import websocketService from './services/websocket.js';
 import { VapiClient } from "@vapi-ai/server-sdk"
 import { Application } from './models/Application.js';
 import { downloadDocument } from './services/s3Service.js';
-import { extractFormFieldValues, CHECKBOX_GROUPS, getGroupCheckboxes } from './services/pdfFormProcessor.js';
+import { extractFormFieldValues, CHECKBOX_GROUPS, getGroupCheckboxes, CHECKBOX_GROUPS_413, getGroupCheckboxes413 } from './services/pdfFormProcessor.js';
 
 // Load environment variables
 dotenv.config();
@@ -884,7 +884,15 @@ app.post('/vapi-ai', async (req, res) => {
             }
 
             case 'captureHighlightField': {
-              const { field, text } = functionArgs as { field?: string; text?: string };
+              const { field, text, formType } = functionArgs as {
+                field?: string;
+                text?: string;
+                formType?: 'SBA_1919' | 'SBA_413'
+              };
+
+              // Default to SBA_1919 if not specified
+              const activeFormType = formType || 'SBA_1919';
+              const formLabel = activeFormType === 'SBA_413' ? '[Form 413]' : '[Form 1919]';
 
               if (!field) {
                 return {
@@ -896,24 +904,31 @@ app.post('/vapi-ai', async (req, res) => {
                 };
               }
 
+              // Select appropriate field order based on form type
+              const fieldOrder = activeFormType === 'SBA_413' ? FORM_413_FIELD_ORDER : FORM_FIELD_ORDER;
+              const emptyFieldsKey = activeFormType === 'SBA_413' ? 'emptyFields413' : 'emptyFields';
+              const filledFieldsKey = activeFormType === 'SBA_413' ? 'filledFieldsThisSession413' : 'filledFieldsThisSession';
+              const documentFileType = activeFormType === 'SBA_413' ? 'SBA_413' : 'SBA_1919';
+
               // Broadcast highlight event for current field
               websocketService.broadcast('highlight-fields', {
                 callId: callId,
                 timestamp: new Date().toISOString(),
                 field,
                 text,
+                formType: activeFormType,
                 source: 'vapi-tool-call'
               }, rooms);
 
-              console.log(`✨ Highlighted field: ${field} with text: "${text || 'none'}" for call ${callId}`);
+              console.log(`✨ ${formLabel} Highlighted field: ${field} with text: "${text || 'none'}" for call ${callId}`);
 
               // Auto-highlight next field if we filled a field (text provided)
               if (text) {
-                console.log(`🚀 Attempting auto-advance after filling field: ${field}, for the call: ${callId}`);
+                console.log(`🚀 ${formLabel} Attempting auto-advance after filling field: ${field}, for the call: ${callId}`);
                 const userData = getUserData(callId);
                 console.log("userData")
                 console.log(userData)
-                let emptyFields = userData?.emptyFields as string[] | undefined;
+                let emptyFields = userData?.[emptyFieldsKey] as string[] | undefined;
                 const applicationId = userData?.applicationId as string | undefined;
 
                 // If we have applicationId but no emptyFields, fetch from PDF
@@ -921,42 +936,42 @@ app.post('/vapi-ai', async (req, res) => {
                   try {
                     const application = await Application.findById(applicationId);
                     if (application) {
-                      const document = application.draftDocuments?.find((d: any) => d.fileType === 'SBA_1919');
+                      const document = application.draftDocuments?.find((d: any) => d.fileType === documentFileType);
                       if (document) {
                         const pdfBuffer = await downloadDocument(document.s3Key);
                         const fieldData = await extractFormFieldValues(pdfBuffer);
-                        console.log("fieldData")
+                        console.log(`${formLabel} fieldData`)
                         console.log(fieldData)
                         emptyFields = fieldData.emptyFields;
                         // Cache for future calls
-                        saveOrUpdateUserData(callId, { emptyFields });
-                        console.log(`📋 Fetched empty fields for auto-advance: ${emptyFields.length} empty fields`);
+                        saveOrUpdateUserData(callId, { [emptyFieldsKey]: emptyFields });
+                        console.log(`📋 ${formLabel} Fetched empty fields for auto-advance: ${emptyFields.length} empty fields`);
                       }
                     }
                   } catch (err) {
-                    console.warn('Could not fetch PDF state for auto-advance:', err);
+                    console.warn(`${formLabel} Could not fetch PDF state for auto-advance:`, err);
                   }
                 }
 
                 // Track the current field as filled for this session
-                const filledFieldsThisSession = (userData?.filledFieldsThisSession as string[]) || [];
+                const filledFieldsThisSession = (userData?.[filledFieldsKey] as string[]) || [];
                 if (!filledFieldsThisSession.includes(field)) {
                   filledFieldsThisSession.push(field);
-                  saveOrUpdateUserData(callId, { filledFieldsThisSession });
+                  saveOrUpdateUserData(callId, { [filledFieldsKey]: filledFieldsThisSession });
                 }
 
                 let nextField: string | undefined;
-                const currentIndex = FORM_FIELD_ORDER.indexOf(field);
+                const currentIndex = fieldOrder.indexOf(field);
 
                 // Find next empty field (check both PDF empty fields and session-filled fields)
-                for (let i = currentIndex + 1; i < FORM_FIELD_ORDER.length; i++) {
-                  const candidateField = FORM_FIELD_ORDER[i];
+                for (let i = currentIndex + 1; i < fieldOrder.length; i++) {
+                  const candidateField = fieldOrder[i];
                   const isEmptyInPdf = !emptyFields || emptyFields.includes(candidateField);
-                  console.log("Empty fields in the pdf:")
+                  console.log(`${formLabel} Empty fields in the pdf:`)
                   console.log(emptyFields)
                   const notFilledThisSession = !filledFieldsThisSession.includes(candidateField);
                   if (isEmptyInPdf && notFilledThisSession) {
-                    console.log(`➡️ Next field to highlight: ${candidateField}`);
+                    console.log(`➡️ ${formLabel} Next field to highlight: ${candidateField}`);
                     nextField = candidateField;
                     break;
                   }
@@ -964,14 +979,15 @@ app.post('/vapi-ai', async (req, res) => {
 
                 // Broadcast highlight for next field (if exists)
                 if (nextField) {
-                  console.log(`🔜 Auto-advancing to next field: ${nextField}`);
+                  console.log(`🔜 ${formLabel} Auto-advancing to next field: ${nextField}`);
                   websocketService.broadcast('highlight-fields', {
                     callId: callId,
                     timestamp: new Date().toISOString(),
                     field: nextField,
+                    formType: activeFormType,
                     source: 'auto-advance'
                   }, rooms);
-                  console.log(`➡️ Auto-highlighted next field: ${nextField}`);
+                  console.log(`➡️ ${formLabel} Auto-highlighted next field: ${nextField}`);
                 }
               }
 
@@ -979,24 +995,33 @@ app.post('/vapi-ai', async (req, res) => {
                 toolCallId: toolCall.id,
                 result: JSON.stringify({
                   success: true,
-                  message: `Field "${field}" highlighted successfully${text ? ' with text' : ''}.`
+                  message: `${formLabel} Field "${field}" highlighted successfully${text ? ' with text' : ''}.`
                 })
               };
             }
 
             case 'captureCheckboxSelection': {
-              let { group, value } = functionArgs as { group?: string; value?: string };
-              console.log('Checkbox capture args (raw):', { group, value });
+              let { group, value, formType } = functionArgs as {
+                group?: string;
+                value?: string;
+                formType?: 'SBA_1919' | 'SBA_413'
+              };
+
+              // Default to SBA_1919 if not specified
+              const activeFormType = formType || 'SBA_1919';
+              const formLabel = activeFormType === 'SBA_413' ? '[Form 413]' : '[Form 1919]';
+
+              console.log(`${formLabel} Checkbox capture args (raw):`, { group, value });
 
               // Normalize: trim whitespace and newlines
               group = group?.trim();
               value = value?.trim();
 
-              console.log('Checkbox capture args (normalized):', { group, value });
+              console.log(`${formLabel} Checkbox capture args (normalized):`, { group, value });
 
               // Validate required parameters
               if (!group || !value) {
-                console.log('⚠️ Missing group or value for checkbox capture');
+                console.log(`⚠️ ${formLabel} Missing group or value for checkbox capture`);
                 return {
                   toolCallId: toolCall.id,
                   result: JSON.stringify({
@@ -1006,15 +1031,19 @@ app.post('/vapi-ai', async (req, res) => {
                 };
               }
 
+              // Select appropriate checkbox groups based on form type
+              const checkboxGroups = activeFormType === 'SBA_413' ? CHECKBOX_GROUPS_413 : CHECKBOX_GROUPS;
+              const getCheckboxesFn = activeFormType === 'SBA_413' ? getGroupCheckboxes413 : getGroupCheckboxes;
+
               // Validate group exists in CHECKBOX_GROUPS
-              const groupConfig = CHECKBOX_GROUPS[group];
+              const groupConfig = checkboxGroups[group];
               if (!groupConfig) {
-                console.log(`⚠️ Unknown checkbox group: ${group}`);
+                console.log(`⚠️ ${formLabel} Unknown checkbox group: ${group}`);
                 return {
                   toolCallId: toolCall.id,
                   result: JSON.stringify({
                     success: false,
-                    error: `Unknown checkbox group: ${group}. Available groups: ${Object.keys(CHECKBOX_GROUPS).join(', ')}`
+                    error: `Unknown checkbox group: ${group}. Available groups: ${Object.keys(checkboxGroups).join(', ')}`
                   })
                 };
               }
@@ -1022,7 +1051,7 @@ app.post('/vapi-ai', async (req, res) => {
               // Validate value exists in group options
               const fieldName = groupConfig.options[value];
               if (!fieldName) {
-                console.log(`⚠️ Unknown value '${value}' for group '${group}'`);
+                console.log(`⚠️ ${formLabel} Unknown value '${value}' for group '${group}'`);
                 return {
                   toolCallId: toolCall.id,
                   result: JSON.stringify({
@@ -1032,7 +1061,7 @@ app.post('/vapi-ai', async (req, res) => {
                 };
               }
 
-              console.log(`📋 Capturing checkbox selection: ${group} = ${value} -> field: ${fieldName}`);
+              console.log(`📋 ${formLabel} Capturing checkbox selection: ${group} = ${value} -> field: ${fieldName}`);
 
               // Store PDF field name in userDataStore
               saveOrUpdateUserData(callId, {
@@ -1042,12 +1071,12 @@ app.post('/vapi-ai', async (req, res) => {
               // Get all checkboxes in group for exclusive groups
               let groupCheckboxes: string[] | undefined = undefined;
               if (groupConfig.exclusive) {
-                groupCheckboxes = getGroupCheckboxes(group);
-                console.log(`📋 Exclusive group - all checkboxes:`, groupCheckboxes);
+                groupCheckboxes = getCheckboxesFn(group);
+                console.log(`📋 ${formLabel} Exclusive group - all checkboxes:`, groupCheckboxes);
               }
 
-              console.log("message call id:", callId);
-              console.log("broadcasting to rooms:", rooms);
+              console.log(`${formLabel} message call id:`, callId);
+              console.log(`${formLabel} broadcasting to rooms:`, rooms);
 
               // Broadcast to WebSocket
               websocketService.broadcast(
@@ -1057,6 +1086,7 @@ app.post('/vapi-ai', async (req, res) => {
                   timestamp: new Date().toISOString(),
                   fields: { [fieldName]: true },
                   fieldType: 'checkbox',
+                  formType: activeFormType,
                   groupCheckboxes,
                   source: 'toolfn-call'
                 },
@@ -1067,7 +1097,7 @@ app.post('/vapi-ai', async (req, res) => {
                 toolCallId: toolCall.id,
                 result: JSON.stringify({
                   success: true,
-                  message: `Captured ${group}: ${value} (field: ${fieldName})`
+                  message: `${formLabel} Captured ${group}: ${value} (field: ${fieldName})`
                 })
               };
             }

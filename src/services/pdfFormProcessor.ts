@@ -96,6 +96,54 @@ export function getGroupCheckboxes(group: string): string[] {
   return Object.values(groupConfig.options);
 }
 
+// Form 413 Checkbox Groups
+export const CHECKBOX_GROUPS_413: Record<string, {
+  description: string;
+  options: Record<string, string>; // user value -> PDF field name
+  exclusive?: boolean;
+}> = {
+  loanProgram: {
+    description: "SBA Loan Program Type (multiple can be selected)",
+    options: {
+      "Disaster Business Loan Application (Excluding Sole Proprietorships)": "Disaster Business Loan Appliction (Excluding Sole Proprietorships)",
+      "Women Owned Small Business (WOSB) Federal Contracting Program": "Women Owned Small Business (WOSB) Federal Contracting Program",
+      "8(a) Business Development Program": "8(a) Business Development Program",
+      "7(a) loan/04 loan/Surety Bonds": "7(a) loan/04 loan/Surety Bonds"
+    }
+    // Not exclusive - multiple programs can be selected
+  },
+  businessType: {
+    description: "Type of business entity",
+    options: {
+      "Corporation": "Business Type: Corporation",
+      "S-Corp": "Business Type: S-Corp",
+      "LLC": "Business Type: LLC",
+      "Partnership": "Business Type: Partnership",
+      "Sole Proprietor": "Business Type: Sole Proprietor"
+    },
+    exclusive: true
+  },
+  wosbMaritalStatus: {
+    description: "WOSB Applicant Marital Status",
+    options: {
+      "Married": "WOSB Applicant Married Yes",
+      "Not Married": "WOSB Applicant Married No"
+    },
+    exclusive: true
+  }
+};
+
+/**
+ * Returns all checkbox field names in a Form 413 group
+ * @param group - The checkbox group name for Form 413
+ * @returns string[] of all field names in the group
+ */
+export function getGroupCheckboxes413(group: string): string[] {
+  const groupConfig = CHECKBOX_GROUPS_413[group];
+  if (!groupConfig) return [];
+  return Object.values(groupConfig.options);
+}
+
 export const initializePDFDirectories = async (): Promise<void> => {
   await fs.ensureDir(TEMPLATES_DIR);
   await fs.ensureDir(GENERATED_DIR);
