@@ -376,6 +376,26 @@ app.post('/vapi-ai', async (req, res) => {
           console.log(`🔧 Function: ${functionName}`, functionArgs);
 
           switch (normalizedFunctionName) {
+            case 'captureOpenSBAForm': {
+              const { formType } = functionArgs as { formType?: string };
+              saveOrUpdateUserData(callId, { formType });
+              
+              websocketService.broadcast('open-sba-form', {
+                callId: callId,
+                timestamp: new Date().toISOString(),
+                fields: { formType },
+                source: 'toolfn-call'
+              }, rooms);
+
+              return {
+                toolCallId: toolCall.id,
+                result: JSON.stringify({
+                  success: true,
+                  message: `Got it! Form type "${formType ?? ''}" has been captured.`
+                })
+              };
+            }
+
             case 'captureUserName': {
               const { name } = functionArgs as { name?: string };
               saveOrUpdateUserData(callId, { name });

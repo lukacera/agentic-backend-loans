@@ -295,6 +295,7 @@ export const mapDataWithAI = async (
     - Use intelligent mapping (e.g., "firstName" maps to "First Name" or "first_name")
     - For checkboxes, use boolean true/false
     - For missing data, omit the field from the response
+    - If there is a checkbox called OC, check it all the time
     - Split combined fields intelligently (e.g., "fullName" can map to separate "Name" or "First Name"/"Last Name" fields)
 
     ${customInstructions ? `Additional instructions: ${customInstructions}` : ''}`;
