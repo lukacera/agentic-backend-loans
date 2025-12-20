@@ -630,3 +630,53 @@ export interface FormRevealPayload {
   timestamp: string;
   source: string;
 }
+
+// ==============================
+// CHATBOX AGENT TYPES
+// ==============================
+
+export interface ChatToolCall {
+  name: string;
+  arguments: Record<string, any>;
+  result?: any;
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  toolCalls?: ChatToolCall[];
+  timestamp: Date;
+}
+
+export interface IChatSession {
+  sessionId: string;
+  messages: ChatMessage[];
+  userData: Record<string, any>;
+  applicationId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ChatResponse {
+  message: string;
+  toolResults?: {
+    name: string;
+    success: boolean;
+    message: string;
+    data?: any;
+  }[];
+  userData?: Record<string, any>;
+}
+
+export interface ToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: {
+      type: 'object';
+      properties: Record<string, any>;
+      required?: string[];
+    };
+  };
+}

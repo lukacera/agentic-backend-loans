@@ -10,6 +10,7 @@ import docsRouter from './routes/docs.js';
 import emailRouter from './routes/emails.js';
 import applicationsRouter from './routes/applications.js';
 import bankRouter from './routes/banks.js';
+import chatboxRouter from './routes/chatbox.js';
 import pollEmails from './services/poller.js';
 import mongoose from 'mongoose';
 import websocketService from './services/websocket.js';
@@ -73,35 +74,6 @@ const createLLM = () => {
     modelName: 'gpt-5',
     temperature: 0.7,
   });
-};
-
-const createPromptTemplate = () => {
-  return ChatPromptTemplate.fromMessages([
-    ["system", "You are a helpful AI assistant. Answer questions clearly and concisely."],
-    ["human", "{input}"]
-  ]);
-};
-
-const createChain = () => {
-  const llm = createLLM();
-  const prompt = createPromptTemplate();
-  
-  return RunnableSequence.from([
-    prompt,
-    llm,
-    new StringOutputParser()
-  ]);
-};
-
-const processQuery = async (input: string): Promise<string> => {
-  try {
-    const chain = createChain();
-    const response = await chain.invoke({ input });
-    return response;
-  } catch (error) {
-    console.error('Error processing query:', error);
-    throw new Error('Failed to process query');
-  }
 };
 
 // Extract form data from transcript using LLM
@@ -1436,29 +1408,7 @@ app.use('/api/docs', docsRouter);
 app.use('/api/emails', emailRouter);
 app.use('/api/applications', applicationsRouter);
 app.use('/api/banks', bankRouter);
-
-app.post('/api/chat', async (req, res) => {
-  try {
-    const { message } = req.body;
-
-    if (!message) {
-      return res.status(400).json({ error: 'Message is required' });
-    }
-
-    const response = await processQuery(message);
-
-    res.json({
-      response,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Chat endpoint error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Failed to process your request'
-    });
-  }
-});
+app.use('/api/chat', chatboxRouter);
 
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -1473,7 +1423,7 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
 httpServer.listen(PORT, () => {
   console.log(`🚀 Server is running on port ${PORT}`);
   console.log(`📡 Health check: http://localhost:${PORT}/health`);
-  console.log(`💬 Chat endpoint: http://localhost:${PORT}/api/chat`);
+  console.log(`💬 Chat API: http://localhost:${PORT}/api/chat/sessions`);
   console.log(`🔌 WebSocket server is ready for connections`);
 });
 

@@ -25,8 +25,9 @@
   - `poller.ts`: schedules inbox polling (default every 20 seconds) and hands replies to the sender.
   - `s3Service.ts`: wraps AWS SDK with retrying uploads, presigned URLs, delete/list helpers. Keys follow `applications/{applicationId}/{fileName}` for standard docs and `drafts/{applicationId}/{fileName}` for draft PDFs.
   - `websocket.ts`: manages Socket.IO rooms (`global` plus per-call rooms), rebroadcasts Vapi events, and supports transcript-derived form field pushes. Emits events like `form-field-update`, `calculate-chances`, `form-reveal`, `draft-updated`, `highlight-fields`, and `checkbox-selection`.
-- **Agents (`src/agents`)**: `BaseAgent.ts` centralizes LangChain setup via `processWithLLM`. `DocumentAgent` and `EmailAgent` build on it for domain-specific prompts and storage helpers. New LLM flows should route through these helpers for consistent logging and throttling.
-- **Models (`src/models`)**: Mongoose schemas (`Application.ts`, `Bank.ts`) aligned with TypeScript contracts in `src/types/index.ts`. The `Application` schema supports both `owner` and `buyer` user types with type-specific fields, loan chance scoring, draft documents, and extensive document tracking (unsigned, signed, user-provided, draft). Update enums (for example, `ApplicationStatus`) whenever introducing new lifecycle states. Current statuses include: `draft`, `submitted`, `processing`, `documents_generated`, `awaiting_signature`, `signed`, `sent_to_bank`, `under_review`, `approved`, `rejected`, `cancelled`.
+- **Agents (`src/agents`)**: `BaseAgent.ts` centralizes LangChain setup via `processWithLLM`. `DocumentAgent`, `EmailAgent`, and `ChatboxAgent` build on it for domain-specific prompts and storage helpers. New LLM flows should route through these helpers for consistent logging and throttling.
+  - `ChatboxAgent.ts`: Text-based chat agent using OpenAI function calling. Mirrors the Vapi voice webhook handler capabilities but for chat/messaging. Uses `CHAT_TOOLS` array defining 23+ function definitions for data capture (name, business info, financials, checkboxes, etc.). Provides `processChat()` which invokes LLM with full conversation history and returns response with tool calls.
+- **Models (`src/models`)**: Mongoose schemas (`Application.ts`, `Bank.ts`, `ChatSession.ts`) aligned with TypeScript contracts in `src/types/index.ts`. `ChatSession.ts` stores persistent chat sessions with full conversation history, user data captured via tool calls, and optional linked application ID. The `Application` schema supports both `owner` and `buyer` user types with type-specific fields, loan chance scoring, draft documents, and extensive document tracking (unsigned, signed, user-provided, draft). Update enums (for example, `ApplicationStatus`) whenever introducing new lifecycle states. Current statuses include: `draft`, `submitted`, `processing`, `documents_generated`, `awaiting_signature`, `signed`, `sent_to_bank`, `under_review`, `approved`, `rejected`, `cancelled`.
 - **Utilities (`src/utils`)**: `formatters.ts` formats application status snapshots for voice agent responses.
 
 ## Core Flows
@@ -56,6 +57,14 @@
     - **Eligibility calculator**: Integrated via `POST /api/applications/calculate-chances` which creates draft application, generates PDFs, and broadcasts results.
   - In-memory `userDataStore` maintains call-specific data; aggregated via `saveOrUpdateUserData()` function. TODO in code suggests moving to persistent database.
   - Transcript chunks are analyzed with an LLM in `main.ts`; extracted JSON fields are broadcast on `form-field-update` so dashboards keep forms synced in real time.
+- **Chat Integration (ChatboxAgent)**
+  - Text-based alternative to Vapi voice for loan application intake via REST API.
+  - `POST /api/chat/sessions`: Creates a new chat session with unique `sessionId`, stored in MongoDB.
+  - `POST /api/chat/sessions/:id/messages`: Sends user message, ChatboxAgent processes with OpenAI function calling, executes tool calls, broadcasts WebSocket events, returns AI response.
+  - **Session storage**: MongoDB-backed `ChatSession` model stores full conversation history, captured `userData`, and optional `applicationId`.
+  - **Tool execution**: Same capture tools as Vapi (23+ tools) implemented in `chatboxService.ts`. Each tool updates session `userData` in MongoDB and broadcasts WebSocket events.
+  - **WebSocket events**: Same events as Vapi (`form-field-update`, `checkbox-selection`, `highlight-fields`) but with `source: 'chat'` and `sessionId` instead of `callId`.
+  - **Function calling**: LLM automatically decides when to capture data based on user input. Tool definitions in `CHAT_TOOLS` array with OpenAI function schema format.
 
 ## Data and Storage
 - Mongo collections house applications and banks. `Application` documents include:
@@ -133,14 +142,22 @@
 - `POST /vapi-ai` - Webhook endpoint for Vapi events and tool calls (supports both call and chat sessions)
 - `POST /api/test-checkbox` - Test endpoint for checkbox selection (mimics Vapi structure)
 
+### Chat Integration
+- `POST /api/chat/sessions` - Create new chat session
+- `GET /api/chat/sessions/:id` - Get session with history and userData
+- `POST /api/chat/sessions/:id/messages` - Send message, get AI response with tool results
+- `DELETE /api/chat/sessions/:id` - Delete chat session
+- `GET /api/chat/sessions/:id/messages` - Get message history
+- `GET /api/chat/sessions/:id/userData` - Get captured user data
+
 ### Other
 - `GET /health` - Health check
-- `POST /api/chat` - General chat endpoint using LangChain
 
 ## Next Steps for Claude
-- Explore `src/routes/applications.ts` (1847 lines) and `src/services/applicationService.ts` for the most intricate business logic including draft flow, eligibility calculations, and document handling.
-- Review `src/agents/EmailAgent.ts` and `DocumentAgent.ts` for existing prompt patterns before introducing new LLM tasks.
-- Study `main.ts` lines 304-865 for the comprehensive Vapi webhook handler and tool-call implementations.
+- Explore `src/routes/applications.ts` and `src/services/applicationService.ts` for the most intricate business logic including draft flow, eligibility calculations, and document handling.
+- Review `src/agents/EmailAgent.ts`, `DocumentAgent.ts`, and `ChatboxAgent.ts` for existing prompt patterns before introducing new LLM tasks.
+- Study `main.ts` for the comprehensive Vapi webhook handler and tool-call implementations.
+- For chat integration, see `src/routes/chatbox.ts`, `src/services/chatboxService.ts`, and `src/agents/ChatboxAgent.ts`.
 - Use the established helpers (`uploadDocumentWithRetry`, `generatePresignedUrl`, `generateDraftPDFs`, etc.) instead of rolling bespoke integration code.
 - Confirm any new environment variables are documented alongside the existing list and validated before use.
-- Note the TODO at line 894 in `main.ts` to migrate `userDataStore` from in-memory Map to persistent database.
+- Note the TODO in `main.ts` to migrate `userDataStore` from in-memory Map to persistent database (chat sessions already use MongoDB via `ChatSession` model).
