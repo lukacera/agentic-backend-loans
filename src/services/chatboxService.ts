@@ -8,6 +8,11 @@ import {
   getGroupCheckboxes,
   getGroupCheckboxes413
 } from './pdfFormProcessor.js';
+import { Application } from '../models/Application.js';
+import {
+  calculateSBAEligibilityForBuyer,
+  calculateSBAEligibilityForOwner
+} from './applicationService.js';
 
 // ==============================
 // SESSION MANAGEMENT
@@ -777,6 +782,311 @@ export const handleDetectConversationFlow = async (
   };
 };
 
+/**
+ * Calculate SBA eligibility chances for BUYER
+ */
+export const handleChancesUserSBAApprovedBUYER = async (
+  sessionId: string,
+  args: {
+    purchasePrice?: number;
+    availableCash?: number;
+    businessCashFlow?: number;
+    buyerCreditScore?: number;
+    isUSCitizen?: boolean;
+    businessYearsRunning?: number;
+    industryExperience?: string;
+  }
+): Promise<ToolResult> => {
+  const {
+    purchasePrice,
+    availableCash,
+    businessCashFlow,
+    buyerCreditScore,
+    isUSCitizen,
+    businessYearsRunning,
+    industryExperience
+  } = args;
+
+  // Validate required fields
+  if (!purchasePrice || !availableCash || !businessCashFlow || !buyerCreditScore || isUSCitizen === undefined || !businessYearsRunning) {
+    return {
+      success: false,
+      message: 'Missing required fields for buyer eligibility calculation'
+    };
+  }
+
+  try {
+    // Call the existing eligibility calculation function
+    const result = calculateSBAEligibilityForBuyer({
+      purchasePrice: String(purchasePrice),
+      availableCash: String(availableCash),
+      businessCashFlow: String(businessCashFlow),
+      buyerCreditScore: String(buyerCreditScore),
+      isUSCitizen,
+      businessYearsRunning,
+      industryExperience
+    });
+
+    console.log(`✅ SBA eligibility calculated for BUYER: ${result.chance} (score: ${result.score})`);
+
+    return {
+      success: true,
+      message: `Eligibility calculated: ${result.chance} chance`,
+      data: {
+        score: result.score,
+        chance: result.chance,
+        reasons: result.reasons
+      }
+    };
+  } catch (error) {
+    console.error('❌ Error calculating buyer eligibility:', error);
+    return {
+      success: false,
+      message: `Error calculating eligibility: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
+  }
+};
+
+/**
+ * Calculate SBA eligibility chances for OWNER
+ */
+export const handleChancesUserSBAApprovedOWNER = async (
+  sessionId: string,
+  args: {
+    monthlyRevenue?: number;
+    monthlyExpenses?: number;
+    existingDebtPayment?: number;
+    requestedLoanAmount?: number;
+    ownerCreditScore?: number;
+    isUSCitizen?: boolean;
+    businessYearsRunning?: number;
+  }
+): Promise<ToolResult> => {
+  const {
+    monthlyRevenue,
+    monthlyExpenses,
+    existingDebtPayment,
+    requestedLoanAmount,
+    ownerCreditScore,
+    isUSCitizen,
+    businessYearsRunning
+  } = args;
+
+  // Validate required fields
+  if (!monthlyRevenue || !monthlyExpenses || !requestedLoanAmount || !ownerCreditScore || isUSCitizen === undefined || !businessYearsRunning) {
+    return {
+      success: false,
+      message: 'Missing required fields for owner eligibility calculation'
+    };
+  }
+
+  try {
+    // Call the existing eligibility calculation function
+    const result = calculateSBAEligibilityForOwner({
+      monthlyRevenue: String(monthlyRevenue),
+      monthlyExpenses: String(monthlyExpenses),
+      existingDebtPayment: String(existingDebtPayment || 0),
+      requestedLoanAmount: String(requestedLoanAmount),
+      loanPurpose: 'Working Capital', // Default value
+      ownerCreditScore: String(ownerCreditScore),
+      isUSCitizen,
+      businessYearsRunning
+    });
+
+    console.log(`✅ SBA eligibility calculated for OWNER: ${result.chance} (score: ${result.score})`);
+
+    return {
+      success: true,
+      message: `Eligibility calculated: ${result.chance} chance`,
+      data: {
+        score: result.score,
+        chance: result.chance,
+        reasons: result.reasons
+      }
+    };
+  } catch (error) {
+    console.error('❌ Error calculating owner eligibility:', error);
+    return {
+      success: false,
+      message: `Error calculating eligibility: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
+  }
+};
+
+/**
+ * Retrieve application status by identifier
+ */
+export const handleRetrieveApplicationStatus = async (
+  sessionId: string,
+  args: { identifier?: string }
+): Promise<ToolResult> => {
+  const { identifier } = args;
+
+  if (!identifier) {
+    return {
+      success: false,
+      message: 'Identifier is required'
+    };
+  }
+
+  try {
+    // Search by business name, phone, or application ID
+    const application = await Application.findOne({
+      $or: [
+        { _id: identifier },
+        { 'applicantData.businessName': { $regex: new RegExp(identifier, 'i') } },
+        { 'applicantData.businessPhoneNumber': identifier }
+      ]
+    }).populate('banks.bank');
+
+    if (!application) {
+      return {
+        success: false,
+        message: `No application found for: ${identifier}`
+      };
+    }
+
+    console.log(`✅ Application retrieved: ${application._id}`);
+
+    // Return comprehensive application data
+    return {
+      success: true,
+      message: 'Application found',
+      data: {
+        applicationId: application._id.toString(),
+        status: application.status,
+        applicantData: application.applicantData,
+        loanChances: application.loanChances,
+        banks: application.banks,
+        offers: application.offers,
+        documents: {
+          unsigned: application.unsignedDocuments,
+          signed: application.signedDocuments,
+          userProvided: application.userProvidedDocuments,
+          draft: application.draftDocuments
+        },
+        signing: {
+          provider: application.signingProvider,
+          status: application.signingStatus,
+          signedBy: application.signedBy,
+          signedDate: application.signedDate
+        },
+        createdAt: application.createdAt,
+        updatedAt: application.updatedAt
+      }
+    };
+  } catch (error) {
+    console.error('❌ Error retrieving application:', error);
+    return {
+      success: false,
+      message: `Error retrieving application: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
+  }
+};
+
+/**
+ * Get filled and empty fields for form continuation
+ */
+export const handleGetFilledFields = async (
+  sessionId: string,
+  args: { applicationId?: string }
+): Promise<ToolResult> => {
+  const { applicationId } = args;
+
+  if (!applicationId) {
+    return {
+      success: false,
+      message: 'Application ID is required'
+    };
+  }
+
+  try {
+    const application = await Application.findById(applicationId);
+
+    if (!application) {
+      return {
+        success: false,
+        message: `Application not found: ${applicationId}`
+      };
+    }
+
+    // TODO: Implement field analysis for SBA forms
+    // This would analyze which fields in applicantData are filled vs empty
+    // For now, return a simple structure
+    const filledFields: string[] = [];
+    const emptyFields: string[] = [];
+
+    // Analyze applicantData
+    const data = application.applicantData;
+    if (data.name) filledFields.push('name');
+    else emptyFields.push('name');
+
+    if (data.businessName) filledFields.push('businessName');
+    else emptyFields.push('businessName');
+
+    if (data.businessPhoneNumber) filledFields.push('businessPhoneNumber');
+    else emptyFields.push('businessPhoneNumber');
+
+    if (data.creditScore) filledFields.push('creditScore');
+    else emptyFields.push('creditScore');
+
+    if (data.yearFounded) filledFields.push('yearFounded');
+    else emptyFields.push('yearFounded');
+
+    console.log(`✅ Field analysis complete: ${filledFields.length} filled, ${emptyFields.length} empty`);
+
+    return {
+      success: true,
+      message: 'Field analysis complete',
+      data: {
+        sba1919: {
+          filledFields,
+          emptyFields,
+          allFields: data
+        },
+        sba413: {
+          filledFields: [],
+          emptyFields: [],
+          allFields: {}
+        }
+      }
+    };
+  } catch (error) {
+    console.error('❌ Error getting filled fields:', error);
+    return {
+      success: false,
+      message: `Error analyzing fields: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
+  }
+};
+
+/**
+ * End conversation signal
+ */
+export const handleEndConversation = async (
+  sessionId: string,
+  args: { reason?: string }
+): Promise<ToolResult> => {
+  const { reason = 'completed' } = args;
+
+  console.log(`✅ Conversation ended: ${sessionId} (reason: ${reason})`);
+
+  // Optionally broadcast conversation end event
+  const rooms = getRooms(sessionId);
+  websocketService.broadcast('conversation-ended', {
+    sessionId,
+    timestamp: new Date().toISOString(),
+    reason,
+    source: 'chat'
+  }, rooms);
+
+  return {
+    success: true,
+    message: `Conversation ended: ${reason}`,
+    data: { reason }
+  };
+};
+
 // ==============================
 // TOOL DISPATCHER
 // ==============================
@@ -840,6 +1150,16 @@ export const executeToolCall = async (
       return handleCaptureLoan(sessionId, args);
     case 'detectConversationFlow':
       return handleDetectConversationFlow(sessionId, args);
+    case 'chancesUserSBAApprovedBUYER':
+      return handleChancesUserSBAApprovedBUYER(sessionId, args);
+    case 'chancesUserSBAApprovedOWNER':
+      return handleChancesUserSBAApprovedOWNER(sessionId, args);
+    case 'retrieveApplicationStatus':
+      return handleRetrieveApplicationStatus(sessionId, args);
+    case 'getFilledFields':
+      return handleGetFilledFields(sessionId, args);
+    case 'endConversation':
+      return handleEndConversation(sessionId, args);
     default:
       console.warn(`⚠️ Unknown tool: ${toolName}`);
       return {
