@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { ChatSession, IChatSessionDocument } from '../models/ChatSession.js';
-import { ChatMessage } from '../types/index.js';
+import { ChatMessage, SBAApplicationData } from '../types/index.js';
 import websocketService from './websocket.js';
 import {
   CHECKBOX_GROUPS,
@@ -11,7 +11,8 @@ import {
 import { Application } from '../models/Application.js';
 import {
   calculateSBAEligibilityForBuyer,
-  calculateSBAEligibilityForOwner
+  calculateSBAEligibilityForOwner,
+  createDraft
 } from './applicationService.js';
 import { generatePresignedUrl } from './s3Service.js';
 
@@ -893,6 +894,23 @@ export const handleChancesUserSBAApprovedOWNER = async (
       isUSCitizen,
       businessYearsRunning
     });
+    const applicantData: any = {
+      name: "Undisclosed",
+      businessName: "Undisclosed",
+      businessPhoneNumber: "",
+      userType: 'owner',
+      creditScore: Number(args.ownerCreditScore || args.ownerCreditScore || 0),
+      yearFounded: Number(new Date().getFullYear()) - Number(args.businessYearsRunning || 0),
+      isUSCitizen: args.isUSCitizen === true,
+      monthlyRevenue: String(args.monthlyRevenue || ''),
+      monthlyExpenses: String(args.monthlyExpenses || ''),
+      existingDebtPayment: String(args.existingDebtPayment || ''),
+      requestedLoanAmount: String(args.requestedLoanAmount || '')
+    };
+
+    // Create draft application
+    const draftApp = await createDraft(applicantData as SBAApplicationData, result);
+
 
     console.log(`✅ SBA eligibility calculated for OWNER: ${result.chance} (score: ${result.score})`);
 

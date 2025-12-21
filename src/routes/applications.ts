@@ -1454,7 +1454,6 @@ router.post('/calculate-chances', async (req, res) => {
   try {
     const data = req.body;
     const toolCallArgs = extractToolCallArguments(req.body);
-    console.log('Tool call args:', toolCallArgs);
     // Check if type field exists to determine buyer vs owner flow
     const applicationType = toolCallArgs.type as string || 'buyer';
 
@@ -1484,9 +1483,6 @@ router.post('/calculate-chances', async (req, res) => {
       chanceResultVapi = calculateSBAEligibilityForOwnerVAPI(toolCallArgs as any);
     }
 
-    // ===== NEW: Create draft application and generate PDFs =====
-    
-    // Build applicant data from toolCallArgs
     const applicantData: any = {
       name: (typeof toolCallArgs.name === 'string' && toolCallArgs.name.trim()) || "Undisclosed",
       businessName: (typeof toolCallArgs.businessName === 'string' && toolCallArgs.businessName.trim()) || "Undisclosed",
@@ -1496,7 +1492,6 @@ router.post('/calculate-chances', async (req, res) => {
       creditScore: Number(toolCallArgs.creditScore || toolCallArgs.buyerCreditScore || toolCallArgs.ownerCreditScore || 0),
       yearFounded: Number(toolCallArgs.yearFounded || 0),
       isUSCitizen: toolCallArgs.isUSCitizen === true,
-      // Add type-specific fields
       ...(applicationType === 'buyer' ? {
         purchasePrice: String(toolCallArgs.purchasePrice || ''),
         availableCash: String(toolCallArgs.availableCash || ''),
