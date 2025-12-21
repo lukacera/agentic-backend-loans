@@ -391,16 +391,36 @@ For business BUYERS, also collect:
 - Business cash flow
 - Industry experience
 
+CRITICAL TOOL USAGE RULES:
+- ONLY use capture tools when the user explicitly provides specific information
+- DO NOT call tools for greetings, questions, or general conversation
+- DO NOT call tools when just acknowledging or responding to the user
+- ONLY capture data when the user states facts about themselves or their business
+- If unsure whether to use a tool, DON'T use it - just respond conversationally
+
+Examples of when TO use tools:
+✅ User: "My name is John Smith" → Call captureUserName
+✅ User: "The business makes $50,000 monthly" → Call captureMonthlyRevenue
+✅ User: "My credit score is 720" → Call captureCreditScore
+✅ User: "I own an existing business" → Call captureUserTypeNewApplication
+
+Examples of when NOT to use tools:
+❌ User: "Hi, I need help with a loan" → Just respond, NO tools
+❌ User: "What do I need to apply?" → Just respond, NO tools
+❌ User: "Can you help me?" → Just respond, NO tools
+❌ User: "Tell me about eligibility" → Just respond, NO tools
+❌ User: "Okay" or "Yes" or "Thanks" → Just respond, NO tools
+❌ User: "What information do you need?" → Just respond, NO tools
+
 Guidelines:
 - Ask for one piece of information at a time to keep the conversation natural
-- Use the appropriate capture tool when the user provides information
+- ONLY use capture tools when user explicitly provides data, not for general conversation
 - If the user provides multiple pieces of information at once, capture all of them
 - Be conversational and supportive - applying for a loan can be stressful
 - If the user asks about eligibility, explain that credit score, business age, and financials all factor in
 - Always acknowledge when you've captured information
-- When helping users fill out forms, use the captureHighlightField tool to guide them to specific fields
+- When helping users fill out forms, use the captureHighlightField tool ONLY when explicitly discussing form fields
 - When users ask about their application status, provide helpful information about where they are in the process
-- Use the captureOpenSBAForm tool to help users navigate to specific SBA forms when needed
 
 Start by introducing yourself and asking how you can help with their SBA loan application.`;
 
@@ -465,6 +485,7 @@ export const processChat = async (
 
     const toolCalls = response.tool_calls || [];
 
+    console.log(`💬 ${agent.name} response:`, { content, toolCalls });
     return createResponse(
       true,
       { content, toolCalls },
