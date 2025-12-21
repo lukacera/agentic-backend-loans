@@ -433,13 +433,18 @@ export const processChat = async (
 
     // Add conversation history
     for (const msg of messages) {
-      if (msg.role === 'user') {
+      // Claude API requires all messages to have non-empty content
+      // (except for optional final assistant message)
+      const hasContent = msg.content && msg.content.trim().length > 0;
+
+      if (msg.role === 'user' && hasContent) {
         langchainMessages.push(new HumanMessage(msg.content));
-      } else if (msg.role === 'assistant') {
+      } else if (msg.role === 'assistant' && hasContent) {
         langchainMessages.push(new AIMessage(msg.content));
-      } else if (msg.role === 'system') {
+      } else if (msg.role === 'system' && hasContent) {
         langchainMessages.push(new SystemMessage(msg.content));
       }
+      // Skip messages with empty content to satisfy Claude API requirements
     }
 
     // Add the new user message
