@@ -229,6 +229,7 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
     let detectedFlow: ConversationFlow = null;
     for (const result of toolResults) {
       if (result.name === 'detectConversationFlow' && result.success && result.data?.flow) {
+        console.log('Detected conversation flow:', result.data.flow);
         detectedFlow = result.data.flow;
         break;
       }

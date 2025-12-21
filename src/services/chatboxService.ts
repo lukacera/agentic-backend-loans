@@ -911,7 +911,6 @@ export const handleChancesUserSBAApprovedOWNER = async (
     // Create draft application
     await createDraft(applicantData as SBAApplicationData, result);
 
-
     console.log(`✅ SBA eligibility calculated for OWNER: ${result.chance} (score: ${result.score})`);
 
     return {
