@@ -13,6 +13,7 @@ import {
   calculateSBAEligibilityForBuyer,
   calculateSBAEligibilityForOwner
 } from './applicationService.js';
+import { generatePresignedUrl } from './s3Service.js';
 
 // ==============================
 // SESSION MANAGEMENT
@@ -948,7 +949,34 @@ export const handleRetrieveApplicationStatus = async (
 
     console.log(`✅ Application retrieved: ${application._id}`);
 
-    // Return comprehensive application data
+    // Generate presigned URLs for all document types
+    const expiresIn = 3600; // 1 hour default
+
+    const [userProvidedDocuments, draftDocuments] = await Promise.all([
+      Promise.all(
+        (application.userProvidedDocuments || []).map(async (doc) => ({
+          fileName: doc.fileName,
+          s3Key: doc.s3Key,
+          url: await generatePresignedUrl(doc.s3Key, expiresIn),
+          uploadedAt: doc.uploadedAt,
+          fileType: doc.fileType,
+          expiresIn
+        }))
+      ),
+      Promise.all(
+        (application.draftDocuments || []).map(async (doc: any) => ({
+          fileName: doc.fileName,
+          s3Key: doc.s3Key,
+          url: await generatePresignedUrl(doc.s3Key, expiresIn),
+          generatedAt: doc.generatedAt,
+          fileType: doc.fileType,
+          expiresIn,
+          signed: doc.signed || false
+        }))
+      )
+    ]);
+
+    // Return comprehensive application data with presigned URLs
     return {
       success: true,
       message: 'Application found',
@@ -960,10 +988,8 @@ export const handleRetrieveApplicationStatus = async (
         banks: application.banks,
         offers: application.offers,
         documents: {
-          unsigned: application.unsignedDocuments,
-          signed: application.signedDocuments,
-          userProvided: application.userProvidedDocuments,
-          draft: application.draftDocuments
+          userProvided: userProvidedDocuments,
+          draft: draftDocuments
         },
         signing: {
           provider: application.signingProvider,

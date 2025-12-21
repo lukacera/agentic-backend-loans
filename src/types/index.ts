@@ -354,8 +354,6 @@ export interface SBAApplication extends Document {
   }]
 
   // S3 Document Storage
-  unsignedDocuments: DocumentStorageInfo[];
-  signedDocuments: DocumentStorageInfo[];
   userProvidedDocuments: DocumentStorageInfo[];
   draftDocuments?: DocumentStorageInfo[]; // Draft PDFs for preview during call
   documentsUploadedToS3: boolean;

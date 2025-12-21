@@ -8,9 +8,7 @@ import {
   getApplicationByPhone,
   getApplications,
   handleSignedDocuments,
-  markUnsignedDocumentAsSigned,
   markDraftDocumentAsSigned,
-  deleteSignedDocument,
   submitApplicationToBank,
   addUserProvidedDocuments,
   createOffer,
@@ -797,31 +795,7 @@ router.get('/:applicationId', async (req, res) => {
     }
 
     // Generate presigned URLs for all document types
-    const [unsignedDocuments, signedDocuments, userProvidedDocuments, draftDocuments] = await Promise.all([
-      // Unsigned documents
-      Promise.all(
-        (application.unsignedDocuments || []).map(async (doc) => ({
-          fileName: doc.fileName,
-          s3Key: doc.s3Key,
-          url: await generatePresignedUrl(doc.s3Key, expiresIn),
-          uploadedAt: doc.uploadedAt,
-          fileType: doc.fileType,
-          expiresIn
-        }))
-      ),
-      // Signed documents
-      Promise.all(
-        (application.signedDocuments || []).map(async (doc) => ({
-          fileName: doc.fileName,
-          s3Key: doc.s3Key,
-          url: await generatePresignedUrl(doc.s3Key, expiresIn),
-          uploadedAt: doc.uploadedAt,
-          signedAt: doc.signedAt,
-          fileType: doc.fileType,
-          expiresIn
-        }))
-      ),
-      // User provided documents
+    const [userProvidedDocuments, draftDocuments] = await Promise.all([
       Promise.all(
         (application.userProvidedDocuments || []).map(async (doc) => ({
           fileName: doc.fileName,
@@ -853,8 +827,6 @@ router.get('/:applicationId', async (req, res) => {
       success: true,
       data: {
         ...applicationData,
-        unsignedDocuments,
-        signedDocuments,
         userProvidedDocuments,
         draftDocuments
       }
@@ -926,59 +898,6 @@ router.get('/status/counts', async (req, res) => {
     
   } catch (error) {
     console.error('Error fetching status counts:', error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Internal server error'
-    });
-  }
-});
-
-// GET /api/applications/:applicationId/documents/unsigned - Explicit unsigned documents endpoint
-router.get('/:applicationId/documents/unsigned', async (req, res) => {
-  try {
-    const { applicationId } = req.params;
-    const expiresIn = parseInt(req.query.expiresIn as string) || 3600; // 1 hour default
-
-    const application = await Application.findById(applicationId);
-
-    if (!application) {
-      return res.status(404).json({
-        success: false,
-        error: 'Application not found'
-      });
-    }
-
-    if (application.unsignedDocuments.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'No documents generated yet',
-        status: application.status
-      });
-    }
-
-    const documentsWithUrls = await Promise.all(
-      application.unsignedDocuments.map(async (doc) => {
-        const presignedUrl = await generatePresignedUrl(doc.s3Key, expiresIn);
-        return {
-          fileName: doc.fileName,
-          url: presignedUrl,
-          uploadedAt: doc.uploadedAt,
-          expiresIn
-        };
-      })
-    );
-
-    res.json({
-      success: true,
-      data: {
-        applicationId,
-        status: application.status,
-        documents: documentsWithUrls
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching unsigned documents:', error);
-
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error'
@@ -1133,14 +1052,6 @@ router.get('/:applicationId/documents/:formName/fields', async (req, res) => {
       document = application.draftDocuments?.find(
         (doc: any) => doc.fileType === formName || doc.fileName?.includes(formName)
       );
-    } else if (documentType === 'unsigned') {
-      document = application.unsignedDocuments?.find(
-        (doc: any) => doc.fileName?.includes(formName)
-      );
-    } else if (documentType === 'signed') {
-      document = application.signedDocuments?.find(
-        (doc: any) => doc.fileName?.includes(formName)
-      );
     }
 
     if (!document) {
@@ -1278,66 +1189,6 @@ router.post('/:applicationId/documents/user-provided', upload.array('documents',
   }
 });
 
-// POST /api/applications/:applicationId/documents/unsigned/mark-signed - Move unsigned document to signed collection
-router.post('/:applicationId/documents/unsigned/mark-signed', async (req, res) => {
-  try {
-    const { applicationId } = req.params;
-    const {
-      fileName,
-      s3Key,
-      signedBy,
-      signingProvider,
-      signingRequestId,
-      signedAt,
-      signedS3Key,
-      signedS3Url
-    } = req.body ?? {};
-
-    if (!fileName && !s3Key) {
-      return res.status(400).json({
-        success: false,
-        error: 'fileName or s3Key is required to mark a document as signed'
-      });
-    }
-
-    const application = await markUnsignedDocumentAsSigned(applicationId, {
-      fileName,
-      s3Key,
-      signedBy,
-      signingProvider,
-      signingRequestId,
-      signedAt,
-      signedS3Key,
-      signedS3Url
-    });
-
-    res.json({
-      success: true,
-      data: {
-        applicationId,
-        status: application.status,
-        unsignedDocuments: application.unsignedDocuments,
-        signedDocuments: application.signedDocuments
-      }
-    });
-
-  } catch (error) {
-    console.error('Error marking unsigned document as signed:', error);
-
-    const message = error instanceof Error ? error.message : 'Internal server error';
-    const statusCode = message === 'Application not found' || message === 'Unsigned document not found'
-      ? 404
-      : message === 'Document identifier (fileName or s3Key) is required'
-        ? 400
-        : 500;
-
-    res.status(statusCode).json({
-      success: false,
-      error: message
-    });
-  }
-});
-
 router.post('/:applicationId/documents/draft/mark-signed', async (req, res) => {
   try {
     const { applicationId } = req.params;
@@ -1399,7 +1250,6 @@ router.post('/:applicationId/documents/draft/mark-signed', async (req, res) => {
   }
 });
 
-
 // POST /api/applications/:applicationId/documents/signed - Upload signed documents
 router.post('/:applicationId/documents/signed', upload.array('documents', 10), async (req, res) => {
   try {
@@ -1439,107 +1289,6 @@ router.post('/:applicationId/documents/signed', upload.array('documents', 10), a
 
   } catch (error) {
     console.error('Error uploading signed documents:', error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Internal server error'
-    });
-  }
-});
-
-// DELETE /api/applications/:applicationId/documents/signed - Delete signed document from DB and S3
-router.delete('/:applicationId/documents/signed', async (req, res) => {
-  try {
-    const { applicationId } = req.params;
-    const fileName = (req.body?.fileName || req.query.fileName) as string | undefined;
-    const s3Key = (req.body?.s3Key || req.query.s3Key) as string | undefined;
-
-    if (!fileName && !s3Key) {
-      return res.status(400).json({
-        success: false,
-        error: 'fileName or s3Key is required to delete a signed document'
-      });
-    }
-
-    const application = await deleteSignedDocument(applicationId, {
-      fileName,
-      s3Key
-    });
-
-    res.json({
-      success: true,
-      data: {
-        applicationId,
-        status: application.status,
-        signedDocuments: application.signedDocuments
-      }
-    });
-
-  } catch (error) {
-    console.error('Error deleting signed document:', error);
-
-    const message = error instanceof Error ? error.message : 'Internal server error';
-    const statusCode = message === 'Application not found' || message === 'Signed document not found'
-      ? 404
-      : message === 'Document identifier (fileName or s3Key) is required'
-        ? 400
-        : 500;
-
-    res.status(statusCode).json({
-      success: false,
-      error: message
-    });
-  }
-});
-
-// GET /api/applications/:applicationId/documents/signed - Get signed document URLs
-router.get('/:applicationId/documents/signed', async (req, res) => {
-  try {
-    const { applicationId } = req.params;
-    const expiresIn = parseInt(req.query.expiresIn as string) || 3600;
-
-    const application = await Application.findById(applicationId);
-    
-    if (!application) {
-      return res.status(404).json({
-        success: false,
-        error: 'Application not found'
-      });
-    }
-
-    if (application.signedDocuments.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'No signed documents found',
-        status: application.status
-      });
-    }
-
-    const documentsWithUrls = await Promise.all(
-      application.signedDocuments.map(async (doc) => {
-        const presignedUrl = await generatePresignedUrl(doc.s3Key, expiresIn);
-        return {
-          fileName: doc.fileName,
-          url: presignedUrl,
-          uploadedAt: doc.uploadedAt,
-          signedAt: doc.signedAt,
-          expiresIn
-        };
-      })
-    );
-
-    res.json({
-      success: true,
-      data: {
-        applicationId,
-        status: application.status,
-        signedBy: application.signedBy,
-        signedDate: application.signedDate,
-        documents: documentsWithUrls
-      }
-    });
-
-  } catch (error) {
-    console.error('Error fetching signed documents:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error'
