@@ -179,10 +179,38 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
       }
     }
 
+    // If content is empty but we have tool results, generate a response by re-invoking the LLM
+    let finalContent = content;
+    if ((!content || content.trim() === '') && toolResults.length > 0) {
+      console.log('⚠️ No content returned with tool calls, re-invoking LLM for response...');
+
+      // Build tool results summary for the LLM
+      const toolResultsSummary = toolResults.map(tr =>
+        `Tool "${tr.name}" ${tr.success ? 'succeeded' : 'failed'}: ${tr.message}`
+      ).join('\n');
+
+      // Get updated session with the user message already added
+      const sessionWithUserMsg = await getSession(sessionId);
+
+      // Re-invoke the LLM with tool results to get a proper response
+      const followUpResult = await processChat(
+        chatboxAgent,
+        sessionWithUserMsg?.messages || [],
+        `[SYSTEM: The following tool calls were just executed successfully. Please provide a natural conversational response to the user acknowledging what was captured and guiding them to the next step. Do NOT call any tools, just respond with text.]\n\nTool results:\n${toolResultsSummary}`
+      );
+
+      if (followUpResult.success && followUpResult.data?.content) {
+        finalContent = followUpResult.data.content;
+      } else {
+        // Fallback: use the tool result messages combined
+        finalContent = toolResults.map(tr => tr.message).join(' ');
+      }
+    }
+
     // Create assistant message with tool calls
     const assistantMessage: ChatMessage = {
       role: 'assistant',
-      content: content || '',
+      content: finalContent || '',
       toolCalls: toolCalls?.map((tc: any) => ({
         name: tc.name,
         arguments: tc.args || {},
@@ -223,7 +251,7 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
     res.json({
       success: true,
       data: {
-        message: content || '',
+        message: finalContent || '',
         toolResults: toolResults.length > 0 ? toolResults : undefined,
         userData: updatedSession?.userData,
         flow: detectedFlow,

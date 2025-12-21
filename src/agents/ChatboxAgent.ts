@@ -1,4 +1,3 @@
-import { ChatAnthropic } from '@langchain/anthropic';
 import { HumanMessage, AIMessage, SystemMessage, BaseMessage } from '@langchain/core/messages';
 import { AgentState, createAgent, createResponse, updateActivity } from './BaseAgent.js';
 import { BaseAgentResponse, ChatMessage, ToolDefinition } from '../types/index.js';
