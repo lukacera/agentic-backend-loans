@@ -1641,11 +1641,29 @@ export const processChat = async (
     // Add the new user message
     langchainMessages.push(new HumanMessage(userMessage));
 
+    // Convert tools from OpenAI format to LangChain Anthropic format
+    // LangChain Anthropic expects: { name, description, input_schema }
+    // Current format: { type: 'function', function: { name, description, parameters } }
+    const langchainTools = CHAT_TOOLS.map(tool => ({
+      name: tool.function.name,
+      description: tool.function.description,
+      input_schema: tool.function.parameters
+    }));
+
+    console.log(`🔧 Binding ${langchainTools.length} tools to LLM`);
+
     // Create LLM with tools bound
-    const llmWithTools = agent.llm.bindTools(CHAT_TOOLS as any);
+    const llmWithTools = agent.llm.bindTools(langchainTools);
 
     // Invoke the LLM
+    console.log(`📤 Invoking LLM with ${langchainMessages.length} messages`);
     const response = await llmWithTools.invoke(langchainMessages);
+
+    console.log(`📥 LLM Response:`, {
+      contentLength: typeof response.content === 'string' ? response.content.length : 0,
+      toolCallsCount: response.tool_calls?.length || 0,
+      toolNames: response.tool_calls?.map((tc: any) => tc.name) || []
+    });
 
     updateActivity(agent);
 
@@ -1656,7 +1674,11 @@ export const processChat = async (
 
     const toolCalls = response.tool_calls || [];
 
-    console.log(`💬 ${agent.name} response:`, { content, toolCalls });
+    console.log(`💬 ${agent.name} response:`, {
+      contentPreview: content.substring(0, 100),
+      toolCallsCount: toolCalls.length,
+      toolNames: toolCalls.map((tc: any) => tc.name)
+    });
     return createResponse(
       true,
       { content, toolCalls },

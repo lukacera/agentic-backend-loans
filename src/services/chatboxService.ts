@@ -12,7 +12,8 @@ import { Application } from '../models/Application.js';
 import {
   calculateSBAEligibilityForBuyer,
   calculateSBAEligibilityForOwner,
-  createDraft
+  createDraft,
+  generateDraftPDFs
 } from './applicationService.js';
 import { generatePresignedUrl } from './s3Service.js';
 
@@ -829,7 +830,47 @@ export const handleChancesUserSBAApprovedBUYER = async (
       industryExperience
     });
 
+    const applicantData: any = {
+      name: "Undisclosed",
+      businessName: "Undisclosed",
+      businessPhoneNumber: "",
+      userType: 'buyer',
+      creditScore: Number(buyerCreditScore || 0),
+      yearFounded: Number(new Date().getFullYear()) - Number(businessYearsRunning || 0),
+      isUSCitizen: isUSCitizen === true,
+      purchasePrice: String(purchasePrice || ''),
+      availableCash: String(availableCash || ''),
+      businessCashFlow: String(businessCashFlow || ''),
+      industryExperience: String(industryExperience || '')
+    };
+
+    // Create draft application
+    const draftApp = await createDraft(applicantData as SBAApplicationData, result);
+    const draftApplicationId = draftApp._id?.toString();
+
+    if (!draftApplicationId) {
+      throw new Error('Failed to create draft application');
+    }
+
+    // Generate draft PDFs
+    const draftPDFs = await generateDraftPDFs(applicantData, draftApplicationId);
+
+    // Update draft application with PDF info
+    await Application.findByIdAndUpdate(draftApplicationId, {
+      draftDocuments: draftPDFs
+    });
+
+    // Generate presigned URLs for the draft documents
+    const documentsWithUrls = await Promise.all(
+      draftPDFs.map(async (doc) => ({
+        name: doc.fileName,
+        url: await generatePresignedUrl(doc.s3Key, 3600), // 1 hour expiration
+        type: doc.fileType
+      }))
+    );
+
     console.log(`✅ SBA eligibility calculated for BUYER: ${result.chance} (score: ${result.score})`);
+    console.log(`✅ Generated ${documentsWithUrls.length} presigned URLs for draft documents`);
 
     return {
       success: true,
@@ -837,7 +878,9 @@ export const handleChancesUserSBAApprovedBUYER = async (
       data: {
         score: result.score,
         chance: result.chance,
-        reasons: result.reasons
+        reasons: result.reasons,
+        draftApplicationId,
+        documents: documentsWithUrls
       }
     };
   } catch (error) {
@@ -881,7 +924,7 @@ export const handleChancesUserSBAApprovedOWNER = async (
       message: 'Missing required fields for owner eligibility calculation'
     };
   }
-
+  console.log("CHACNES OWNER ARGS:", args);
   try {
     // Call the existing eligibility calculation function
     const result = calculateSBAEligibilityForOwner({
@@ -909,9 +952,29 @@ export const handleChancesUserSBAApprovedOWNER = async (
     };
 
     // Create draft application
-    await createDraft(applicantData as SBAApplicationData, result);
+    const draftApp = await createDraft(applicantData as SBAApplicationData, result);
+    const draftApplicationId = draftApp._id?.toString();
 
-    console.log(`✅ SBA eligibility calculated for OWNER: ${result.chance} (score: ${result.score})`);
+    if (!draftApplicationId) {
+      throw new Error('Failed to create draft application');
+    }
+
+    // Generate draft PDFs
+    const draftPDFs = await generateDraftPDFs(applicantData, draftApplicationId);
+
+    // Update draft application with PDF info
+    await Application.findByIdAndUpdate(draftApplicationId, {
+      draftDocuments: draftPDFs
+    });
+
+    // Generate presigned URLs for the draft documents
+    const documentsWithUrls = await Promise.all(
+      draftPDFs.map(async (doc) => ({
+        name: doc.fileName,
+        url: await generatePresignedUrl(doc.s3Key, 3600), // 1 hour expiration
+        type: doc.fileType
+      }))
+    );
 
     return {
       success: true,
@@ -919,7 +982,9 @@ export const handleChancesUserSBAApprovedOWNER = async (
       data: {
         score: result.score,
         chance: result.chance,
-        reasons: result.reasons
+        reasons: result.reasons,
+        draftApplicationId,
+        documents: documentsWithUrls
       }
     };
   } catch (error) {
