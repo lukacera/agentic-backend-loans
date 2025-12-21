@@ -1,9 +1,9 @@
-import { ChatOpenAI } from '@langchain/openai';
+import { ChatAnthropic } from '@langchain/anthropic';
 import { HumanMessage, AIMessage, SystemMessage, BaseMessage } from '@langchain/core/messages';
 import { AgentState, createAgent, createResponse, updateActivity } from './BaseAgent.js';
 import { BaseAgentResponse, ChatMessage, ToolDefinition } from '../types/index.js';
 
-// Tool definitions for OpenAI function calling
+// Tool definitions for Claude function calling
 export const CHAT_TOOLS: ToolDefinition[] = [
   {
     type: 'function',
@@ -469,7 +469,7 @@ export const processChat = async (
 
   } catch (error) {
     console.error('❌ Chatbox processing error:', error);
-    return createResponse(
+    return createResponse<{ content: string; toolCalls: any[] }>(
       false,
       undefined,
       error instanceof Error ? error.message : 'Failed to process chat message',
@@ -483,7 +483,7 @@ export const getChatboxAgentCapabilities = (): string[] => [
   'AI-powered loan application assistance',
   'Natural language conversation',
   'Automatic data extraction and capture',
-  'OpenAI function calling for structured data',
+  'Claude function calling for structured data',
   'Full conversation history support',
   'SBA loan eligibility guidance',
   'Real-time form field updates via WebSocket',

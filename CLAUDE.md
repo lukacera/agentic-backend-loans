@@ -3,11 +3,11 @@
 ## Mission
 - Node.js/Express backend that orchestrates Torvely's SBA loan automation: collects applications, generates and signs SBA forms, stores artifacts in S3, keeps the bank loop updated, and coordinates AI assistants across web, email, and voice.
 - Written in TypeScript and compiled via `tsc`; app entry point is `src/main.ts` which wires routes, async pollers, Mongo, Socket.IO, and Vapi voice events.
-- AI capabilities are brokered through LangChain `ChatOpenAI` wrappers defined in `src/agents`, giving consistent logging and configuration plus tooling for document, email, and chat agents.
+- AI capabilities are brokered through LangChain `ChatAnthropic` (Claude AI) wrappers defined in `src/agents`, giving consistent logging and configuration plus tooling for document, email, and chat agents.
 
 ## Run Locally
-- Requirements: Node 18+, MongoDB (default URI `mongodb://localhost:27017/torvely_ai`), access to AWS S3, SMTP, IMAP, OpenAI, and optional Vapi credentials.
-- Copy `.env` (not in repo) and fill: `OPENAI_API_KEY`, `VAPI_API_KEY`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET_NAME`, `IMAP_*`, `SMTP_*`, and other integration keys.
+- Requirements: Node 18+, MongoDB (default URI `mongodb://localhost:27017/torvely_ai`), access to AWS S3, SMTP, IMAP, Claude AI (Anthropic), and optional Vapi credentials (which uses OpenAI for voice).
+- Copy `.env` (not in repo) and fill: `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (optional, defaults to `claude-3-5-sonnet-20241022`), `OPENAI_API_KEY` (for Vapi voice assistant only), `VAPI_API_KEY`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET_NAME`, `IMAP_*`, `SMTP_*`, and other integration keys.
 - Install deps with `npm install`; start watcher via `npm run dev`. Production build uses `npm run build` then `npm start` from repo root so filesystem lookups resolve.
 - Ensure local directories exist (`templates/`, `generated/`, `processed/`, `uploads/`). The service auto-creates some folders but templates must be seeded manually.
 
@@ -25,8 +25,8 @@
   - `poller.ts`: schedules inbox polling (default every 20 seconds) and hands replies to the sender.
   - `s3Service.ts`: wraps AWS SDK with retrying uploads, presigned URLs, delete/list helpers. Keys follow `applications/{applicationId}/{fileName}` for standard docs and `drafts/{applicationId}/{fileName}` for draft PDFs.
   - `websocket.ts`: manages Socket.IO rooms (`global` plus per-call rooms), rebroadcasts Vapi events, and supports transcript-derived form field pushes. Emits events like `form-field-update`, `calculate-chances`, `form-reveal`, `draft-updated`, `highlight-fields`, and `checkbox-selection`.
-- **Agents (`src/agents`)**: `BaseAgent.ts` centralizes LangChain setup via `processWithLLM`. `DocumentAgent`, `EmailAgent`, and `ChatboxAgent` build on it for domain-specific prompts and storage helpers. New LLM flows should route through these helpers for consistent logging and throttling.
-  - `ChatboxAgent.ts`: Text-based chat agent using OpenAI function calling. Mirrors the Vapi voice webhook handler capabilities but for chat/messaging. Uses `CHAT_TOOLS` array defining 23+ function definitions for data capture (name, business info, financials, checkboxes, etc.). Provides `processChat()` which invokes LLM with full conversation history and returns response with tool calls.
+- **Agents (`src/agents`)**: `BaseAgent.ts` centralizes LangChain setup via `processWithLLM` using Claude AI (Anthropic). `DocumentAgent`, `EmailAgent`, and `ChatboxAgent` build on it for domain-specific prompts and storage helpers. New LLM flows should route through these helpers for consistent logging and throttling.
+  - `ChatboxAgent.ts`: Text-based chat agent using Claude AI function calling. Mirrors the Vapi voice webhook handler capabilities but for chat/messaging. Uses `CHAT_TOOLS` array defining 23+ function definitions for data capture (name, business info, financials, checkboxes, etc.). Provides `processChat()` which invokes LLM with full conversation history and returns response with tool calls.
 - **Models (`src/models`)**: Mongoose schemas (`Application.ts`, `Bank.ts`, `ChatSession.ts`) aligned with TypeScript contracts in `src/types/index.ts`. `ChatSession.ts` stores persistent chat sessions with full conversation history, user data captured via tool calls, and optional linked application ID. The `Application` schema supports both `owner` and `buyer` user types with type-specific fields, loan chance scoring, draft documents, and extensive document tracking (unsigned, signed, user-provided, draft). Update enums (for example, `ApplicationStatus`) whenever introducing new lifecycle states. Current statuses include: `draft`, `submitted`, `processing`, `documents_generated`, `awaiting_signature`, `signed`, `sent_to_bank`, `under_review`, `approved`, `rejected`, `cancelled`.
 - **Utilities (`src/utils`)**: `formatters.ts` formats application status snapshots for voice agent responses.
 
@@ -97,8 +97,9 @@
 - **Test Endpoint**: `POST /api/test-checkbox` mimics Vapi webhook structure for testing checkbox selection without voice calls
 
 ## AI Usage Guidelines
-- Always access OpenAI via the LangChain helpers in `src/agents`. `processWithLLM` ensures consistent prompts, logging, and timeout handling.
-- **Main.ts uses direct LangChain**: The `main.ts` file uses direct `ChatOpenAI` instantiation for voice assistant creation and transcript extraction (currently configured to use `gpt-5` model at line 70, temperature 0.7). This is an exception to the agent pattern for performance.
+- Always access Claude AI via the LangChain helpers in `src/agents`. `processWithLLM` ensures consistent prompts, logging, and timeout handling.
+- **Main.ts uses direct LangChain**: The `main.ts` file uses direct `ChatAnthropic` instantiation for transcript extraction (currently configured to use `claude-3-5-sonnet-20241022` model, temperature 0.7). This is an exception to the agent pattern for performance.
+- **Vapi Voice Assistant**: The Vapi assistant creation endpoint (`POST /api/create-vapi-assistant`) still configures OpenAI models (`gpt-5-mini`) because Vapi's platform requires OpenAI. This is separate from the backend's internal LLM processing which uses Claude AI.
 - When expanding prompts (for example, new document mappings or email strategies), constrain outputs to JSON if downstream code calls `JSON.parse`. The transcript extraction prompt explicitly requires valid JSON output with markdown cleanup logic.
 - Respect concurrency and timeout settings configured in agents (`maxConcurrentTasks`, `timeout`). Propagate meaningful errors so services can degrade gracefully.
 - **Eligibility Calculations**: Two distinct calculation functions exist for buyer vs owner flows (`calculateSBAEligibilityForBuyer`, `calculateSBAEligibilityForOwner`) with corresponding VAPI-formatted versions. These are rule-based (not LLM-based) and score based on credit, revenue, debt ratios, and business age.

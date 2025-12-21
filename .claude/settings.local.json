@@ -1,4 +1,5 @@
 {
+  "apiKeyHelper": "bash ~/.claude/get-api-key.sh",
   "permissions": {
     "allow": [
       "Bash(cat:*)",
@@ -6,10 +7,10 @@
       "Bash(dir:*)",
       "Bash(grep:*)",
       "Bash(wc:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(npm install:*)"
     ],
     "deny": [],
     "ask": []
-  },
-  "apiKeyHelper": "bash ~/.claude/get-api-key.sh"
+  }
 }
