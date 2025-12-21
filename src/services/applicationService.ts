@@ -96,6 +96,7 @@ export const createDraft = async (
   loanChances?: { score: number; chance: 'low' | 'medium' | 'high'; reasons: string[] }
 ): Promise<SBAApplication> => {
   try {
+    console.log("loan chances in create draft:");
     await initializeDirectories();
     console.log(loanChances);
     // Create application in MongoDB with DRAFT status
