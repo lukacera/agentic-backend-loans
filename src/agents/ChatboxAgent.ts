@@ -354,6 +354,24 @@ export const CHAT_TOOLS: ToolDefinition[] = [
         }
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'detectConversationFlow',
+      description: 'Detect and indicate the conversation flow when user explicitly states they want to: continue filling an existing application, apply for a new loan, or check their application status. ONLY call this when user clearly states their intent in the current message.',
+      parameters: {
+        type: 'object',
+        properties: {
+          flow: {
+            type: 'string',
+            enum: ['continue_application', 'new_application', 'check_status'],
+            description: 'The detected conversation flow based on user intent'
+          }
+        },
+        required: ['flow']
+      }
+    }
   }
 ];
 

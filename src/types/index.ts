@@ -680,3 +680,9 @@ export interface ToolDefinition {
     };
   };
 }
+
+// ==============================
+// CONVERSATION FLOW TYPES
+// ==============================
+
+export type ConversationFlow = 'continue_application' | 'new_application' | 'check_status' | null;

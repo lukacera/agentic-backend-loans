@@ -11,7 +11,7 @@ import {
   deleteSession,
   executeToolCall
 } from '../services/chatboxService.js';
-import { ChatMessage } from '../types/index.js';
+import { ChatMessage, ConversationFlow } from '../types/index.js';
 
 const router = express.Router();
 
@@ -197,12 +197,37 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
     // Get updated session for userData
     const updatedSession = await getSession(sessionId);
 
+    // Extract flow from tool results
+    let detectedFlow: ConversationFlow = null;
+    for (const result of toolResults) {
+      if (result.name === 'detectConversationFlow' && result.success && result.data?.flow) {
+        detectedFlow = result.data.flow;
+        break;
+      }
+    }
+
+    // Generate mock documents based on flow
+    let mockDocuments = null;
+    if (detectedFlow === 'continue_application') {
+      mockDocuments = [
+        { name: 'SBA Form 1919', type: 'SBA_1919', url: 'mock://sba-1919.pdf' },
+        { name: 'SBA Form 413', type: 'SBA_413', url: 'mock://sba-413.pdf' }
+      ];
+    } else if (detectedFlow === 'check_status') {
+      mockDocuments = [
+        { name: 'SBA Form 1919 (Signed)', type: 'SBA_1919', url: 'mock://sba-1919-signed.pdf', status: 'signed' },
+        { name: 'SBA Form 413 (Signed)', type: 'SBA_413', url: 'mock://sba-413-signed.pdf', status: 'signed' }
+      ];
+    }
+
     res.json({
       success: true,
       data: {
         message: content || '',
         toolResults: toolResults.length > 0 ? toolResults : undefined,
-        userData: updatedSession?.userData
+        userData: updatedSession?.userData,
+        flow: detectedFlow,
+        documents: mockDocuments
       }
     });
   } catch (error) {

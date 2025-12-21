@@ -749,6 +749,34 @@ export const handleCaptureLoan = async (
   };
 };
 
+/**
+ * Handle conversation flow detection
+ * No MongoDB update needed - just return the flow value
+ */
+export const handleDetectConversationFlow = async (
+  sessionId: string,
+  args: { flow?: string }
+): Promise<ToolResult> => {
+  const flow = args.flow;
+
+  // Validate flow value
+  const validFlows = ['continue_application', 'new_application', 'check_status'];
+  if (!flow || !validFlows.includes(flow)) {
+    return {
+      success: false,
+      message: `Invalid flow: ${flow}`
+    };
+  }
+
+  // No MongoDB update needed - just return the flow
+  console.log(`✅ Conversation flow detected: ${flow}`);
+  return {
+    success: true,
+    message: `Flow detected: ${flow}`,
+    data: { flow }
+  };
+};
+
 // ==============================
 // TOOL DISPATCHER
 // ==============================
@@ -810,6 +838,8 @@ export const executeToolCall = async (
       return handleCaptureCheckboxSelection(sessionId, args);
     case 'captureLoan':
       return handleCaptureLoan(sessionId, args);
+    case 'detectConversationFlow':
+      return handleDetectConversationFlow(sessionId, args);
     default:
       console.warn(`⚠️ Unknown tool: ${toolName}`);
       return {
