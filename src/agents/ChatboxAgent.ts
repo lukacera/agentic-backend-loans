@@ -520,7 +520,7 @@ If "EXPLORE LOAN OPTIONS" / "NEW LOAN" / "LOOKING FOR FINANCING" (even if the us
 
 If "EXISTING APPLICATION" / "CHECK STATUS" / "QUESTIONS ABOUT MY APPLICATION" (even if the user interrupts or speaks first) → Follow "Application Status Flow"
 
-If "CONTINUE" / "FINISH MY FORM" / "RESUME" / "PICK UP WHERE I LEFT OFF" / "COMPLETE MY APPLICATION" → Follow "Continue Form Flow"
+If "CONTINUE" / "FINISH MY FORM" / "RESUME" / "PICK UP WHERE I LEFT OFF" / "COMPLETE MY APPLICATION" / "I would like to continue filling out my application" → Follow "Continue Form Flow"
 
 ---
 
@@ -683,7 +683,7 @@ Agent: "Great! Let's start with the form. Which form would you like to start wit
 
 [Wait for user response]
 
-IF user says "413" or "PERSONAL FINANCIAL" or "FINANCIAL STATEMENT":
+IF user says "413" or "PERSONAL FINANCIAL" or "FINANCIAL STATEMENT" or answers affirmatively or says "NOT SURE" / "PICK FOR ME":
 [CALL TOOL: captureOpenSBAForm("SBA_413")]
 → Proceed to Form 413 Guided Completion
 
