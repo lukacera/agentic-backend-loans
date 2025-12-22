@@ -179,23 +179,82 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
       }
     }
 
-    // If content is empty but we have tool results, generate a response by re-invoking the LLM
     let finalContent = content;
 
-    // Create assistant message with tool calls
-    const assistantMessage: ChatMessage = {
-      role: 'assistant',
-      content: finalContent || '',
-      toolCalls: toolCalls?.map((tc: any) => ({
-        name: tc.name,
-        arguments: tc.args || {},
-        result: toolResults.find(r => r.name === tc.name)
-      })),
-      timestamp: new Date()
-    };
+    // If we have tool calls, we need to do a second LLM invocation with tool results
+    if (toolCalls && toolCalls.length > 0) {
+      console.log(`🔄 Re-invoking LLM with ${toolResults.length} tool results`);
 
-    // Add assistant message to history
-    await addMessage(sessionId, assistantMessage);
+      // Create assistant message with tool calls
+      const assistantMessageWithTools: ChatMessage = {
+        role: 'assistant',
+        content: content || '',
+        toolCalls: toolCalls?.map((tc: any) => ({
+          name: tc.name,
+          arguments: tc.args || {},
+          result: toolResults.find(r => r.name === tc.name)
+        })),
+        timestamp: new Date()
+      };
+
+      // Add assistant message with tool calls to history
+      await addMessage(sessionId, assistantMessageWithTools);
+
+      // Create a user message with tool results for the LLM
+      // (Claude API doesn't allow system messages in the middle of conversation)
+      const toolResultsMessage: ChatMessage = {
+        role: 'user',
+        content: `[Tool execution results]\n${toolResults.map(r =>
+          `- ${r.name}: ${r.success ? 'SUCCESS' : 'FAILED'} - ${r.message}${r.data ? `\nData: ${JSON.stringify(r.data, null, 2)}` : ''}`
+        ).join('\n')}\n\nBased on these tool results, please respond to the user naturally without echoing these technical messages.`,
+        timestamp: new Date()
+      };
+
+      // Add tool results message to history
+      await addMessage(sessionId, toolResultsMessage);
+
+      // Get updated session with tool results
+      const sessionWithToolResults = await getSession(sessionId);
+      if (!sessionWithToolResults) {
+        throw new Error('Session not found after tool execution');
+      }
+
+      // Re-invoke LLM with complete history including tool results
+      const secondResult = await processChat(
+        chatboxAgent,
+        sessionWithToolResults.messages,
+        '' // Empty message - we're continuing the conversation with tool results
+      );
+
+      if (secondResult.success && secondResult.data) {
+        finalContent = secondResult.data.content;
+        console.log(`✅ Got final response from LLM after tool execution`);
+      } else {
+        console.warn(`⚠️ Second LLM invocation failed, using tool results as fallback`);
+        // Fallback: use tool result messages
+        finalContent = toolResults.map(r => r.message).join('\n');
+      }
+
+      // Create final assistant message with natural language response
+      const finalAssistantMessage: ChatMessage = {
+        role: 'assistant',
+        content: finalContent,
+        timestamp: new Date()
+      };
+
+      // Add final response to history
+      await addMessage(sessionId, finalAssistantMessage);
+    } else {
+      // No tool calls - just add the content response
+      const assistantMessage: ChatMessage = {
+        role: 'assistant',
+        content: finalContent || '',
+        timestamp: new Date()
+      };
+
+      // Add assistant message to history
+      await addMessage(sessionId, assistantMessage);
+    }
 
     // Get updated session for userData
     const updatedSession = await getSession(sessionId);
