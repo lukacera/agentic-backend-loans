@@ -1,4 +1,4 @@
-import { HumanMessage, AIMessage, SystemMessage, BaseMessage } from '@langchain/core/messages';
+import { HumanMessage, AIMessage, SystemMessage, BaseMessage, ToolCall } from '@langchain/core/messages';
 import { AgentState, createAgent, createResponse, updateActivity } from './BaseAgent.js';
 import { BaseAgentResponse, ChatMessage, ToolDefinition } from '../types/index.js';
 
@@ -469,14 +469,15 @@ export const CHATBOX_SYSTEM_PROMPT = `
 🚨 TOP PRIORITY RULE - READ THIS FIRST 🚨
 NEVER say things like "User type captured successfully" or "Credit score captured successfully" or any "X captured successfully" messages.
 These are internal tool messages. Users should NEVER see them.
-When you call a tool, it will confirm success internally, but you must respond to the user naturally.
+
+IMPORTANT: When you call tools, you will receive tool execution results in a follow-up message. Use those results to craft your natural response to the user.
 
 Example of what NEVER to do:
 ❌ "User type captured successfully. Year founded captured successfully. Monthly revenue captured successfully."
 
 Example of what to do instead:
-✅ After calling captureYearFounded(2019): "Great! And what's your monthly revenue?"
-✅ After calling captureCreditScore(720): "Excellent. How much are you looking to borrow?"
+✅ After calling captureYearFounded(2019) and receiving success: "Great! And what's your monthly revenue?"
+✅ After calling captureCreditScore(720) and receiving success: "Excellent. How much are you looking to borrow?"
 
 [Identity]
 You are a helpful and knowledgeable loan specialist/broker assisting users with:
@@ -489,13 +490,9 @@ You are a helpful and knowledgeable loan specialist/broker assisting users with:
 - Natural, conversational tone
 - Avoid unnecessary compliments like "great", "nice job" at sentence starts
 
-⚠️ CRITICAL - NEVER Echo Tool Result Messages:
-When you call a tool (like captureUserName, captureCreditScore, etc.), the tool returns a message like "User name captured successfully" or "Credit score captured successfully."
-YOU MUST NEVER repeat these technical messages to the user. They are internal confirmations only.
-Instead, continue the conversation naturally by asking the next question or acknowledging the information conversationally.
-
-WRONG: "User type captured successfully. Year founded captured successfully. Monthly revenue captured successfully."
-RIGHT: "Got it! When was your business founded?"
+⚠️ CRITICAL - Tool Results Handling:
+After you call tools, you'll receive their execution results. Use these results to inform your response but NEVER echo technical messages like "captured successfully."
+Continue the conversation naturally by asking the next question or acknowledging the information conversationally.
 
 The only exception is the eligibility calculation tools (chancesUserSBAApprovedBUYER/OWNER), where you MUST explain the results with reasons as instructed later in this prompt.
 
@@ -1638,8 +1635,11 @@ export const processChat = async (
       // Skip messages with empty content to satisfy Claude API requirements
     }
 
-    // Add the new user message
-    langchainMessages.push(new HumanMessage(userMessage));
+    // Add the new user message only if it's not empty
+    // (for tool result continuation, userMessage may be empty)
+    if (userMessage && userMessage.trim().length > 0) {
+      langchainMessages.push(new HumanMessage(userMessage));
+    }
 
     // Convert tools from OpenAI format to LangChain Anthropic format
     // LangChain Anthropic expects: { name, description, input_schema }
@@ -1662,7 +1662,7 @@ export const processChat = async (
     console.log(`📥 LLM Response:`, {
       contentLength: typeof response.content === 'string' ? response.content.length : 0,
       toolCallsCount: response.tool_calls?.length || 0,
-      toolNames: response.tool_calls?.map((tc: any) => tc.name) || []
+      toolNames: response.tool_calls?.map((tc: ToolCall) => tc.name) || []
     });
 
     updateActivity(agent);
@@ -1677,7 +1677,7 @@ export const processChat = async (
     console.log(`💬 ${agent.name} response:`, {
       contentPreview: content.substring(0, 100),
       toolCallsCount: toolCalls.length,
-      toolNames: toolCalls.map((tc: any) => tc.name)
+      toolNames: toolCalls.map((tc: ToolCall) => tc.name)
     });
     return createResponse(
       true,

@@ -17,10 +17,6 @@ import {
 } from './applicationService.js';
 import { generatePresignedUrl } from './s3Service.js';
 
-// ==============================
-// SESSION MANAGEMENT
-// ==============================
-
 /**
  * Create a new chat session
  */
@@ -1140,8 +1136,6 @@ export const handleGetFilledFields = async (
 
     if (data.yearFounded) filledFields.push('yearFounded');
     else emptyFields.push('yearFounded');
-
-    console.log(`✅ Field analysis complete: ${filledFields.length} filled, ${emptyFields.length} empty`);
 
     return {
       success: true,
