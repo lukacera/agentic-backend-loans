@@ -29,6 +29,44 @@ interface ToolResultEntry {
 
 // Helper function to construct contextual fallback when LLM returns empty content
 function constructContextualFallback(toolResults: ToolResultEntry[]): string {
+  // Special handling for continue form flow - check this FIRST
+  const getFilledFieldsResult = toolResults.find(r => r.name === 'getFilledFields' && r.success);
+  const openFormResult = toolResults.find(r => r.name === 'captureOpenSBAForm' && r.success);
+
+  if (openFormResult) {
+    const formType = openFormResult.data?.formType || 'SBA_1919';
+    const formName = formType === 'SBA_413' ? 'Form 413' : 'Form 1919';
+
+    // If we have empty fields data, use it
+    if (getFilledFieldsResult?.data) {
+      const formKey = formType === 'SBA_413' ? 'sba413' : 'sba1919';
+      const emptyFields = getFilledFieldsResult.data?.[formKey]?.emptyFields || [];
+
+      if (emptyFields.length > 0) {
+        return `Perfect! ${formName} is now open. You have ${emptyFields.length} fields remaining to complete. Let's start with the first one - what would you like to enter for "${emptyFields[0]}"?`;
+      }
+      return `Great! ${formName} is now open. It looks like all fields are already filled. Would you like to review or update any of them?`;
+    }
+
+    // No empty fields data - generic form open message
+    return `Perfect! ${formName} is now open. Let's continue filling out the remaining fields. I'll highlight each one for you.`;
+  }
+
+  // Handle retrieveAllApplications
+  const allAppsResult = toolResults.find(r => r.name === 'retrieveAllApplications' && r.success);
+  if (allAppsResult) {
+    const count = allAppsResult.data?.applications?.length || 0;
+    if (count > 0) {
+      return `I found ${count} application${count > 1 ? 's' : ''}. Please select the one you'd like to continue with.`;
+    }
+    return "I couldn't find any existing applications. Would you like to start a new one?";
+  }
+
+  // Handle getFilledFields without form open (shouldn't happen often)
+  if (getFilledFieldsResult) {
+    return "I've retrieved your form progress. Which form would you like to continue with - Form 1919 or Form 413?";
+  }
+
   // Find the last capture tool that was called successfully
   const captureTools = toolResults.filter(r => r.name.startsWith('capture') && r.success);
 
@@ -66,7 +104,8 @@ function constructContextualFallback(toolResults: ToolResultEntry[]): string {
   const commonFlowNext: Record<string, string> = {
     'captureUserName': "What's the name of your business?",
     'captureBusinessName': "What's your business phone number?",
-    'capturePhoneNumber': "Let me get some more details about your situation."
+    'capturePhoneNumber': "Let me get some more details about your situation.",
+    'captureHighlightField': "Got it. What's the next field you'd like to fill in?"
   };
 
   // Try common flow first, then owner flow, then buyer flow
@@ -255,13 +294,49 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
       // Add assistant message with tool calls to history
       await addMessage(sessionId, assistantMessageWithTools);
 
+      // Build flow-specific continuation instructions
+      let continuationInstruction = "Based on these tool results, continue the conversation naturally. If you're in the middle of collecting information for a loan application, ask for the next piece of information according to the flow.";
+
+      // Check for continue form flow
+      const hasOpenFormResult = toolResults.some(r => r.name === 'captureOpenSBAForm');
+      const hasFilledFieldsResult = toolResults.some(r => r.name === 'getFilledFields');
+
+      if (hasOpenFormResult && hasFilledFieldsResult) {
+        const formResult = toolResults.find(r => r.name === 'captureOpenSBAForm');
+        const formType = formResult?.data?.formType || 'SBA_1919';
+
+        continuationInstruction = `The user has selected to continue with ${formType}. You MUST now guide them through filling out the remaining empty fields listed in the getFilledFields result. Start by acknowledging the form is open, tell them how many fields remain, then ask about the FIRST empty field. Follow the form completion flow from your instructions.`;
+      } else if (hasOpenFormResult) {
+        // Form opened but no filled fields data (new application flow)
+        const formResult = toolResults.find(r => r.name === 'captureOpenSBAForm');
+        const formType = formResult?.data?.formType || 'SBA_1919';
+
+        continuationInstruction = `The user has selected ${formType}. You MUST now begin the guided form completion flow. Acknowledge the form is open and start asking about the first field according to your form completion instructions.`;
+      }
+
+      // Check for new application eligibility results
+      const hasEligibilityResult = toolResults.some(r =>
+        r.name === 'chancesUserSBAApprovedBUYER' || r.name === 'chancesUserSBAApprovedOWNER'
+      );
+      if (hasEligibilityResult) {
+        continuationInstruction = "You just calculated the user's SBA eligibility. You MUST explain the results including the score, chance level, and ALL the reasons from the reasons array. Then ask if they're ready to fill out the form.";
+      }
+
+      // Check for retrieveAllApplications
+      const hasAllAppsResult = toolResults.some(r => r.name === 'retrieveAllApplications');
+      if (hasAllAppsResult) {
+        const appsResult = toolResults.find(r => r.name === 'retrieveAllApplications');
+        const count = appsResult?.data?.applications?.length || 0;
+        continuationInstruction = `You retrieved ${count} application(s) for the user. Tell them how many applications you found and ask them to select one to continue with.`;
+      }
+
       // Create a user message with tool results for the LLM
       // (Claude API doesn't allow system messages in the middle of conversation)
       const toolResultsMessage: ChatMessage = {
         role: 'user',
         content: `[Tool execution results]\n${toolResults.map(r =>
           `- ${r.name}: ${r.success ? 'SUCCESS' : 'FAILED'} - ${r.message}${r.data ? `\nData: ${JSON.stringify(r.data, null, 2)}` : ''}`
-        ).join('\n')}\n\nBased on these tool results, continue the conversation naturally. If you're in the middle of collecting information for a loan application, ask for the next piece of information according to the flow. Do NOT echo the tool success messages - instead, acknowledge the information conversationally and proceed with the next question.`,
+        ).join('\n')}\n\n${continuationInstruction}\n\nDo NOT echo tool success messages. Proceed naturally with the next step in the flow.`,
         timestamp: new Date()
       };
 
