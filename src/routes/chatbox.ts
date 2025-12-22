@@ -12,6 +12,7 @@ import {
   executeToolCall
 } from '../services/chatboxService.js';
 import { ChatMessage, ConversationFlow } from '../types/index.js';
+import { getIO } from '../services/websocket.js';
 
 const router = express.Router();
 
@@ -328,6 +329,32 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
         const appsResult = toolResults.find(r => r.name === 'retrieveAllApplications');
         const count = appsResult?.data?.applications?.length || 0;
         continuationInstruction = `You retrieved ${count} application(s) for the user. Tell them how many applications you found and ask them to select one to continue with.`;
+      }
+
+      // Auto-highlight first empty field when form is opened in continue flow
+      if (hasOpenFormResult && hasFilledFieldsResult) {
+        const filledFieldsResult = toolResults.find(r => r.name === 'getFilledFields');
+        const openFormResult = toolResults.find(r => r.name === 'captureOpenSBAForm');
+        const formType = (openFormResult?.data?.formType || 'SBA_1919') as string;
+        const formKey = formType === 'SBA_413' ? 'sba413' : 'sba1919';
+        const emptyFields = filledFieldsResult?.data?.[formKey]?.emptyFields || [];
+
+        if (emptyFields.length > 0) {
+          const firstEmptyField = emptyFields[0];
+          const io = getIO();
+
+          if (io) {
+            io.to('global').to(sessionId).emit('highlight-fields', {
+              sessionId,
+              timestamp: new Date().toISOString(),
+              field: firstEmptyField,
+              formType,
+              source: 'auto-advance-chat'
+            });
+
+            console.log(`➡️ Auto-highlighted first empty field: ${firstEmptyField} for session ${sessionId}`);
+          }
+        }
       }
 
       // Create a user message with tool results for the LLM
