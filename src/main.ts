@@ -71,8 +71,8 @@ const vapi = new VapiClient({
 const createLLM = () => {
   return new ChatAnthropic({
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-    modelName: "claude-sonnet-4-5",
-    temperature: 0.7,
+    modelName: "claude-sonnet-4-20250514",
+    temperature: 0.4,
   });
 };
 
