@@ -19,6 +19,61 @@ const router = express.Router();
 const chatboxAgent = createChatboxAgent();
 initializeChatboxAgent().catch(console.error);
 
+// Type for tool result entries used in fallback logic
+interface ToolResultEntry {
+  name: string;
+  success: boolean;
+  message: string;
+  data?: any;
+}
+
+// Helper function to construct contextual fallback when LLM returns empty content
+function constructContextualFallback(toolResults: ToolResultEntry[]): string {
+  // Find the last capture tool that was called successfully
+  const captureTools = toolResults.filter(r => r.name.startsWith('capture') && r.success);
+
+  if (captureTools.length === 0) {
+    return "I've noted that information. What else can I help you with?";
+  }
+
+  const lastTool = captureTools[captureTools.length - 1].name;
+
+  // Map tool names to next questions in owner flow
+  const ownerFlowNext: Record<string, string> = {
+    'captureUserTypeNewApplication': "When was your business founded?",
+    'captureYearFounded': "What's your monthly revenue?",
+    'captureMonthlyRevenue': "And what are your monthly expenses?",
+    'captureMonthlyExpenses': "Do you have any existing debt payments? If so, how much per month?",
+    'captureExistingDebtPayment': "How much are you looking to borrow?",
+    'captureRequestedLoanAmount': "Are you a U.S. citizen?",
+    'captureUSCitizen': "What's your credit score?",
+    'captureCreditScore': "Let me calculate your eligibility..."
+  };
+
+  // Map tool names to next questions in buyer flow
+  const buyerFlowNext: Record<string, string> = {
+    'captureUserTypeNewApplication': "When was the business you're looking to buy founded?",
+    'captureYearFounded': "What's the purchase price of the business?",
+    'capturePurchasePrice': "How much cash do you have available for a down payment?",
+    'captureAvailableCash': "What's the business's monthly cash flow?",
+    'captureBusinessCashFlow': "How many years of experience do you have in this industry?",
+    'captureIndustryExperience': "Are you a U.S. citizen?",
+    'captureUSCitizen': "What's your credit score?",
+    'captureCreditScore': "Let me calculate your eligibility..."
+  };
+
+  // Common capture tools that apply to both flows
+  const commonFlowNext: Record<string, string> = {
+    'captureUserName': "What's the name of your business?",
+    'captureBusinessName': "What's your business phone number?",
+    'capturePhoneNumber': "Let me get some more details about your situation."
+  };
+
+  // Try common flow first, then owner flow, then buyer flow
+  return commonFlowNext[lastTool] || ownerFlowNext[lastTool] || buyerFlowNext[lastTool] ||
+    "Got it! What other information can I help you with?";
+}
+
 // ==============================
 // SESSION MANAGEMENT ROUTES
 // ==============================
@@ -206,7 +261,7 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
         role: 'user',
         content: `[Tool execution results]\n${toolResults.map(r =>
           `- ${r.name}: ${r.success ? 'SUCCESS' : 'FAILED'} - ${r.message}${r.data ? `\nData: ${JSON.stringify(r.data, null, 2)}` : ''}`
-        ).join('\n')}\n\nBased on these tool results, please respond to the user naturally without echoing these technical messages.`,
+        ).join('\n')}\n\nBased on these tool results, continue the conversation naturally. If you're in the middle of collecting information for a loan application, ask for the next piece of information according to the flow. Do NOT echo the tool success messages - instead, acknowledge the information conversationally and proceed with the next question.`,
         timestamp: new Date()
       };
 
@@ -228,11 +283,18 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
 
       if (secondResult.success && secondResult.data) {
         finalContent = secondResult.data.content;
+
+        // Validate non-empty response - LLM sometimes returns empty content
+        if (!finalContent || finalContent.trim().length === 0) {
+          console.warn(`⚠️ LLM returned empty content after tool execution, constructing contextual fallback`);
+          finalContent = constructContextualFallback(toolResults);
+        }
+
         console.log(`✅ Got final response from LLM after tool execution`);
       } else {
-        console.warn(`⚠️ Second LLM invocation failed, using tool results as fallback`);
-        // Fallback: use tool result messages
-        finalContent = toolResults.map(r => r.message).join('\n');
+        console.warn(`⚠️ Second LLM invocation failed, using contextual fallback`);
+        // Fallback: construct a contextual response based on what tools were called
+        finalContent = constructContextualFallback(toolResults);
       }
 
       // Create final assistant message with natural language response
@@ -269,20 +331,6 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
       }
     }
 
-    // Generate mock documents based on flow
-    let mockDocuments = null;
-    if (detectedFlow === 'continue_application') {
-      mockDocuments = [
-        { name: 'SBA Form 1919', type: 'SBA_1919', url: 'mock://sba-1919.pdf' },
-        { name: 'SBA Form 413', type: 'SBA_413', url: 'mock://sba-413.pdf' }
-      ];
-    } else if (detectedFlow === 'check_status') {
-      mockDocuments = [
-        { name: 'SBA Form 1919 (Signed)', type: 'SBA_1919', url: 'mock://sba-1919-signed.pdf', status: 'signed' },
-        { name: 'SBA Form 413 (Signed)', type: 'SBA_413', url: 'mock://sba-413-signed.pdf', status: 'signed' }
-      ];
-    }
-
     // Extract applications list from tool results if present
     const applicationsResult = toolResults.find(r => r.name === 'retrieveAllApplications');
     const applications = applicationsResult?.data?.applications;
@@ -294,7 +342,6 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
         toolResults: toolResults.length > 0 ? toolResults : undefined,
         userData: updatedSession?.userData,
         flow: detectedFlow,
-        documents: mockDocuments,
         applications: applications || undefined
       }
     });

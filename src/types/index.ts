@@ -679,6 +679,12 @@ export interface ToolDefinition {
   };
 }
 
+export interface ChatDocument {
+  name: string;
+  type: string;
+  url: string;
+}
+
 // ==============================
 // CONVERSATION FLOW TYPES
 // ==============================

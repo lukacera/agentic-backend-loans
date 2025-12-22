@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { ChatSession, IChatSessionDocument } from '../models/ChatSession.js';
-import { ChatMessage, SBAApplicationData } from '../types/index.js';
+import { ChatDocument, ChatMessage, SBAApplicationData } from '../types/index.js';
 import websocketService from './websocket.js';
 import {
   CHECKBOX_GROUPS,
@@ -1137,6 +1137,15 @@ export const handleGetFilledFields = async (
       doc413 ? processForm(doc413, 'SBA_413') : Promise.resolve({ filledFields: [], emptyFields: [], allFields: {} })
     ]);
 
+    // Map draft documents to ChatDocument[]
+    const documents: ChatDocument[] = await Promise.all(
+      (application.draftDocuments || []).map(async (doc: any) => ({
+        name: doc.fileName,
+        type: doc.fileType,
+        url: await generatePresignedUrl(doc.s3Key, 3600)
+      }))
+    );
+
     return {
       success: true,
       message: 'Field analysis complete',
@@ -1152,7 +1161,8 @@ export const handleGetFilledFields = async (
           emptyFields: result413.emptyFields,
           allFields: result413.allFields,
           url: application.draftDocuments?.find((doc: any) => doc.fileName.includes('SBA_413'))?.s3Key || null
-        }
+        },
+        documents
       }
     };
   } catch (error) {
