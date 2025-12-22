@@ -770,6 +770,75 @@ router.get('/documents/sample-contract', async (req, res) => {
   }
 });
 
+// GET /api/applications/recent - Get the most recent application
+router.get('/recent', async (req, res) => {
+  try {
+    const expiresIn = parseInt(req.query.expiresIn as string) || 3600;
+
+    const application = await Application.findOne()
+      .sort({ createdAt: -1 })
+      .populate({
+        path: 'banks.bank',
+        model: 'Bank'
+      })
+      .populate({
+        path: 'offers.bank',
+        model: 'Bank'
+      })
+      .exec();
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        error: 'No applications found'
+      });
+    }
+
+    // Generate presigned URLs for documents
+    const [userProvidedDocuments, draftDocuments] = await Promise.all([
+      Promise.all(
+        (application.userProvidedDocuments || []).map(async (doc) => ({
+          fileName: doc.fileName,
+          s3Key: doc.s3Key,
+          url: await generatePresignedUrl(doc.s3Key, expiresIn),
+          uploadedAt: doc.uploadedAt,
+          fileType: doc.fileType,
+          expiresIn
+        }))
+      ),
+      Promise.all(
+        (application.draftDocuments || []).map(async (doc: any) => ({
+          fileName: doc.fileName,
+          s3Key: doc.s3Key,
+          url: await generatePresignedUrl(doc.s3Key, expiresIn),
+          generatedAt: doc.generatedAt,
+          fileType: doc.fileType,
+          expiresIn,
+          signed: doc.signed || false
+        }))
+      )
+    ]);
+
+    const applicationData = application.toObject();
+
+    res.json({
+      success: true,
+      data: {
+        ...applicationData,
+        userProvidedDocuments,
+        draftDocuments
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching recent application:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
+  }
+});
+
 // GET /api/applications/:applicationId - Get specific application
 router.get('/:applicationId', async (req, res) => {
   try {
