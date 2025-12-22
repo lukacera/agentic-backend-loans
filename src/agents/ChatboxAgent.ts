@@ -449,6 +449,18 @@ export const CHAT_TOOLS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'retrieveAllApplications',
+      description: 'Retrieve all applications to display to the user for selection',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'endConversation',
       description: 'Signal that the conversation is complete and can be ended',
       parameters: {
@@ -1345,17 +1357,27 @@ Agent: "Okay, switching to [Form Name] now."
 
 ## CONTINUE FORM FLOW
 
-### Step 1: Request Application ID
+### Step 1: Retrieve and Display Applications
 
-Agent: "I see you'd like to continue an existing form. To proceed, could you please provide me with application id?"
+Agent: "I see you'd like to continue an existing form. Let me pull up your applications for you."
 
-[User provides identifier]
+[CALL TOOL: retrieveAllApplications()]
 
-### Step 2: Retrieve Application & Get Empty Fields
+⚠️ CRITICAL: The tool will return an array of applications with:
+- applicationId (use this for next step)
+- businessName
+- businessPhone
+- status
+- loanChance
+- lastUpdated
 
-[CALL TOOL: retrieveApplicationStatus(identifier)]
+Agent: "I found [NUMBER] applications. Please pick the one you'd like to continue with by clicking on it."
 
-⚠️ CRITICAL: Parse the response to get applicationId, then:
+[Wait for user to click/select application - frontend sends applicationId in next message]
+
+### Step 2: Get Empty Fields for Selected Application
+
+[User selection provides applicationId - extract from user's message]
 [CALL TOOL: getFilledFields(applicationId)]
 
 ⚠️ CRITICAL: Parse the Response

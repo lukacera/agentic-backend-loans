@@ -283,6 +283,10 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
       ];
     }
 
+    // Extract applications list from tool results if present
+    const applicationsResult = toolResults.find(r => r.name === 'retrieveAllApplications');
+    const applications = applicationsResult?.data?.applications;
+
     res.json({
       success: true,
       data: {
@@ -290,7 +294,8 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
         toolResults: toolResults.length > 0 ? toolResults : undefined,
         userData: updatedSession?.userData,
         flow: detectedFlow,
-        documents: mockDocuments
+        documents: mockDocuments,
+        applications: applications || undefined
       }
     });
   } catch (error) {

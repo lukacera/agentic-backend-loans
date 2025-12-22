@@ -5,6 +5,7 @@ import websocketService from './websocket.js';
 import {
   CHECKBOX_GROUPS,
   CHECKBOX_GROUPS_413,
+  extractFormFieldValues,
   getGroupCheckboxes,
   getGroupCheckboxes413
 } from './pdfFormProcessor.js';
@@ -15,7 +16,7 @@ import {
   createDraft,
   generateDraftPDFs
 } from './applicationService.js';
-import { generatePresignedUrl } from './s3Service.js';
+import { downloadDocument, generatePresignedUrl } from './s3Service.js';
 
 /**
  * Create a new chat session
@@ -1114,42 +1115,43 @@ export const handleGetFilledFields = async (
       };
     }
 
-    // TODO: Implement field analysis for SBA forms
-    // This would analyze which fields in applicantData are filled vs empty
-    // For now, return a simple structure
-    const filledFields: string[] = [];
-    const emptyFields: string[] = [];
+    const doc1919 = application.draftDocuments?.find((d: any) => d.fileType === 'SBA_1919');
+    const doc413 = application.draftDocuments?.find((d: any) => d.fileType === 'SBA_413');
 
-    // Analyze applicantData
-    const data = application.applicantData;
-    if (data.name) filledFields.push('name');
-    else emptyFields.push('name');
+    // Helper function to process a single form
+    const processForm = async (document: any, formType: 'SBA_1919' | 'SBA_413') => {
+      try {
+        const pdfBuffer = await downloadDocument(document.s3Key);
+        const result = await extractFormFieldValues(pdfBuffer);
+        console.log(`📋 [${formType}] Retrieved: ${result.filledFields.length} filled, ${result.emptyFields.length} empty`);
+        return result;
+      } catch (error) {
+        console.warn(`⚠️ Could not process ${formType}:`, error);
+        return { filledFields: [], emptyFields: [], allFields: {} };
+      }
+    };
 
-    if (data.businessName) filledFields.push('businessName');
-    else emptyFields.push('businessName');
-
-    if (data.businessPhoneNumber) filledFields.push('businessPhoneNumber');
-    else emptyFields.push('businessPhoneNumber');
-
-    if (data.creditScore) filledFields.push('creditScore');
-    else emptyFields.push('creditScore');
-
-    if (data.yearFounded) filledFields.push('yearFounded');
-    else emptyFields.push('yearFounded');
+    // Process both forms in parallel
+    const [result1919, result413] = await Promise.all([
+      doc1919 ? processForm(doc1919, 'SBA_1919') : Promise.resolve({ filledFields: [], emptyFields: [], allFields: {} }),
+      doc413 ? processForm(doc413, 'SBA_413') : Promise.resolve({ filledFields: [], emptyFields: [], allFields: {} })
+    ]);
 
     return {
       success: true,
       message: 'Field analysis complete',
       data: {
         sba1919: {
-          filledFields,
-          emptyFields,
-          allFields: data
+          filledFields: result1919.filledFields,
+          emptyFields: result1919.emptyFields,
+          allFields: result1919.allFields,
+          url: application.draftDocuments?.find((doc: any) => doc.fileName.includes('SBA_1919'))?.s3Key || null
         },
         sba413: {
-          filledFields: [],
-          emptyFields: [],
-          allFields: {}
+          filledFields: result413.filledFields,
+          emptyFields: result413.emptyFields,
+          allFields: result413.allFields,
+          url: application.draftDocuments?.find((doc: any) => doc.fileName.includes('SBA_413'))?.s3Key || null
         }
       }
     };
@@ -1158,6 +1160,44 @@ export const handleGetFilledFields = async (
     return {
       success: false,
       message: `Error analyzing fields: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
+  }
+};
+
+/**
+ * Retrieve all applications for selection
+ */
+export const handleRetrieveAllApplications = async (
+  sessionId: string,
+  args: {}
+): Promise<ToolResult> => {
+  try {
+    // Retrieve all applications sorted by most recent
+    const applications = await Application.find()
+      .sort({ updatedAt: -1 })
+      .limit(50) // Limit to prevent overwhelming user
+      .select('_id applicantData.businessName applicantData.businessPhoneNumber status loanChances createdAt updatedAt');
+
+    const applicationList = applications.map(app => ({
+      applicationId: app._id.toString(),
+      businessName: app.applicantData?.businessName || 'Unknown',
+      status: app.status,
+      loanChance: app.loanChances?.chance || 'N/A',
+      lastUpdated: app.updatedAt
+    }));
+
+    console.log(`✅ Retrieved ${applicationList.length} applications for selection`);
+
+    return {
+      success: true,
+      message: `Found ${applicationList.length} applications`,
+      data: { applications: applicationList }
+    };
+  } catch (error) {
+    console.error('❌ Error retrieving applications:', error);
+    return {
+      success: false,
+      message: `Error retrieving applications: ${error instanceof Error ? error.message : 'Unknown error'}`
     };
   }
 };
@@ -1260,6 +1300,8 @@ export const executeToolCall = async (
       return handleRetrieveApplicationStatus(sessionId, args);
     case 'getFilledFields':
       return handleGetFilledFields(sessionId, args);
+    case 'retrieveAllApplications':
+      return handleRetrieveAllApplications(sessionId, args);
     case 'endConversation':
       return handleEndConversation(sessionId, args);
     default:
