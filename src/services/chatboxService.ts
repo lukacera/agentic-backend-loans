@@ -596,19 +596,48 @@ export const handleCaptureIfSellerFinancingOnStandbyExists = async (
  */
 export const handleCaptureOpenSBAForm = async (
   sessionId: string,
-  args: { formType?: string }
+  args: { formType?: string; emptyFields?: string[] }
 ): Promise<ToolResult> => {
-  const { formType } = args;
+  const { formType, emptyFields } = args;
   const rooms = getRooms(sessionId);
 
   await updateUserData(sessionId, { formType });
 
+  // Broadcast form open event with emptyFields
   websocketService.broadcast('open-sba-form', {
     sessionId,
     timestamp: new Date().toISOString(),
     fields: { formType },
+    emptyFields: emptyFields || [],
     source: 'chat'
   }, rooms);
+
+  // Auto-highlight first empty field if emptyFields provided
+  // Add a small delay to ensure the form is rendered before highlighting
+  if (emptyFields && emptyFields.length > 0) {
+    const firstEmptyField = emptyFields[0];
+    const activeFormType = (formType as 'SBA_1919' | 'SBA_413') || 'SBA_1919';
+    const formLabel = activeFormType === 'SBA_413' ? '[Form 413]' : '[Form 1919]';
+    console.log(`✨ ${formLabel} Preparing to auto-highlight first empty field: ${firstEmptyField}`);
+    // Delay highlighting by 3 seconds to allow form to render
+    setTimeout(() => {
+      websocketService.broadcast('highlight-fields', {
+        sessionId,
+        timestamp: new Date().toISOString(),
+        field: firstEmptyField,
+        text: '',  // Empty text, just highlighting
+        formType: activeFormType,
+        source: 'chat'
+      }, rooms);
+
+      console.log(`✨ ${formLabel} Auto-highlighted first empty field: ${firstEmptyField} (after 3s delay)`);
+    }, 3000);
+
+    return {
+      success: true,
+      message: `Got it! Form type "${formType ?? ''}" has been opened with ${emptyFields.length} empty fields. Starting with field "${firstEmptyField}".`
+    };
+  }
 
   return {
     success: true,
@@ -625,8 +654,10 @@ export const handleCaptureHighlightField = async (
 ): Promise<ToolResult> => {
   const { field, text, formType } = args;
   const rooms = getRooms(sessionId);
+  console.log(`✨Highlighted field: ${field} with text: "${text || 'none'}" for session ${sessionId}`);
 
   if (!field) {
+    console.log("field is not found")
     return {
       success: false,
       message: 'Field name is required'
@@ -644,8 +675,6 @@ export const handleCaptureHighlightField = async (
     formType: activeFormType,
     source: 'chat'
   }, rooms);
-
-  console.log(`✨ ${formLabel} Highlighted field: ${field} with text: "${text || 'none'}" for session ${sessionId}`);
 
   return {
     success: true,
@@ -921,7 +950,6 @@ export const handleChancesUserSBAApprovedOWNER = async (
       message: 'Missing required fields for owner eligibility calculation'
     };
   }
-  console.log("CHACNES OWNER ARGS:", args);
   try {
     // Call the existing eligibility calculation function
     const result = calculateSBAEligibilityForOwner({
@@ -1251,8 +1279,6 @@ export const executeToolCall = async (
   toolName: string,
   args: Record<string, any>
 ): Promise<ToolResult> => {
-  console.log(`🔧 Executing tool: ${toolName}`, args);
-
   switch (toolName) {
     case 'captureUserName':
       return handleCaptureUserName(sessionId, args);

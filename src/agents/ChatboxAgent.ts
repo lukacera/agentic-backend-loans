@@ -305,7 +305,7 @@ export const CHAT_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'captureOpenSBAForm',
-      description: 'Signal to open a specific SBA form for the user',
+      description: 'Signal to open a specific SBA form for the user. Can optionally provide empty fields to auto-highlight the first one.',
       parameters: {
         type: 'object',
         properties: {
@@ -313,6 +313,11 @@ export const CHAT_TOOLS: ToolDefinition[] = [
             type: 'string',
             description: 'The form to open',
             enum: ['SBA_1919', 'SBA_413']
+          },
+          emptyFields: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional array of empty field names. If provided, the first field will be auto-highlighted.'
           }
         },
         required: ['formType']
@@ -506,8 +511,9 @@ You are a helpful and knowledgeable loan specialist/broker assisting users with:
 ⚠️ CRITICAL - Tool Results Handling:
 After you call tools, you'll receive their execution results. Use these results to inform your response but NEVER echo technical messages like "captured successfully."
 Continue the conversation naturally by asking the next question or acknowledging the information conversationally.
-
 The only exception is the eligibility calculation tools (chancesUserSBAApprovedBUYER/OWNER), where you MUST explain the results with reasons as instructed later in this prompt.
+
+---
 
 INITIAL ROUTING - CRITICAL FIRST STEPS
 DO NOT continue until you have this information.
@@ -685,11 +691,15 @@ Agent: "Great! Let's start with the form. Which form would you like to start wit
 [Wait for user response]
 
 IF user says "413" or "PERSONAL FINANCIAL" or "FINANCIAL STATEMENT" or answers affirmatively or says "NOT SURE" / "PICK FOR ME":
-[CALL TOOL: captureOpenSBAForm("SBA_413")]
+[CALL TOOL: captureOpenSBAForm("SBA_413", emptyFields: sba413.emptyFields)]
+Note: emptyFields comes from getFilledFields result for continue flow, empty array for new applications
+The tool will automatically highlight the first empty field if emptyFields array is provided
 → Proceed to Form 413 Guided Completion
 
 IF user says "1919" or "BUSINESS LOAN" or NO RESPONSE or "NOT SURE" or "YEAH" or "YES" or "YEA":
-[CALL TOOL: captureOpenSBAForm("SBA_1919")]
+[CALL TOOL: captureOpenSBAForm("SBA_1919", emptyFields: sba1919.emptyFields)]
+Note: emptyFields comes from getFilledFields result for continue flow, empty array for new applications
+The tool will automatically highlight the first empty field if emptyFields array is provided
 → Proceed to Form 1919 Guided Completion
 
 IF you cannot determine form choice:
@@ -1424,10 +1434,14 @@ Agent: "No problem! Your progress is saved. Just message back when you're ready 
 
 Agent: "Let's continue where you left off..."
 
+⚠️ **IMPORTANT:** When opening the form, pass the emptyFields array to automatically highlight the first empty field:
+
 For Form 1919:
+[CALL TOOL: captureOpenSBAForm("SBA_1919", emptyFields: sba1919.emptyFields)]
 Go through the Form 1919 field list, but ONLY ask for fields that are in **emptyFields**
 
 For Form 413:
+[CALL TOOL: captureOpenSBAForm("SBA_413", emptyFields: sba413.emptyFields)]
 Go through the Form 413 field list, but ONLY ask for fields that are in **emptyFields**
 
 ### Step 5: Completion
@@ -1539,11 +1553,11 @@ If no: "Alright! We'll keep you updated via email and text. You can also check y
 2. Parse response and store the emptyFields array
 3. ONLY ask about fields that are in the emptyFields array
 4. Skip all fields that are already filled (not in emptyFields)
-5. Complete form and offer to review
+5. For each field, call captureHighlightField(fieldName, userValue, formType) to highlight and fill it
+6. Complete form and offer to review
 
 ⚠️ CRITICAL: Call the appropriate tool function immediately after user provides each required data piece. Do not wait until end of conversation.
-
-⚠️ CRITICAL: After calling a tool, DO NOT echo the tool's success message. The tool returns messages like "User name captured successfully" but these are internal confirmations. Continue the conversation naturally without mentioning them.
+⚠️ CRITICAL: After calling a tool, DO NOT echo the tool's success message. The tool returns messages like "Field highlighted successfully" or "captured successfully" but these are internal confirmations. NEVER mention these messages to the user. Continue the conversation naturally without mentioning tool execution results.
 
 [Required Data Collection & Tool Calls]
 

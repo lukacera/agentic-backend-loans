@@ -69,7 +69,12 @@ function constructContextualFallback(toolResults: ToolResultEntry[]): string {
   }
 
   // Find the last capture tool that was called successfully
-  const captureTools = toolResults.filter(r => r.name.startsWith('capture') && r.success);
+  // Exclude captureHighlightField as it's just a UI update
+  const captureTools = toolResults.filter(r =>
+    r.name.startsWith('capture') &&
+    r.name !== 'captureHighlightField' &&
+    r.success
+  );
 
   if (captureTools.length === 0) {
     return "I've noted that information. What else can I help you with?";
@@ -105,8 +110,7 @@ function constructContextualFallback(toolResults: ToolResultEntry[]): string {
   const commonFlowNext: Record<string, string> = {
     'captureUserName': "What's the name of your business?",
     'captureBusinessName': "What's your business phone number?",
-    'capturePhoneNumber': "Let me get some more details about your situation.",
-    'captureHighlightField': "Got it. What's the next field you'd like to fill in?"
+    'capturePhoneNumber': "Let me get some more details about your situation."
   };
 
   // Try common flow first, then owner flow, then buyer flow
@@ -359,11 +363,14 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
 
       // Create a user message with tool results for the LLM
       // (Claude API doesn't allow system messages in the middle of conversation)
+      // Filter out captureHighlightField results - they're just UI updates, no need to inform LLM
+      const relevantToolResults = toolResults.filter(r => r.name !== 'captureHighlightField');
+
       const toolResultsMessage: ChatMessage = {
         role: 'user',
-        content: `[Tool execution results]\n${toolResults.map(r =>
+        content: `[Tool execution results]\n${relevantToolResults.map(r =>
           `- ${r.name}: ${r.success ? 'SUCCESS' : 'FAILED'} - ${r.message}${r.data ? `\nData: ${JSON.stringify(r.data, null, 2)}` : ''}`
-        ).join('\n')}\n\n${continuationInstruction}\n\nDo NOT echo tool success messages. Proceed naturally with the next step in the flow.`,
+        ).join('\n')}\n\n${continuationInstruction}\n\n🚨 CRITICAL: DO NOT mention tool execution results to the user. DO NOT say "Field highlighted successfully" or "captured successfully". These are internal system messages. Continue the conversation naturally as if the tools ran silently in the background.`,
         timestamp: new Date()
       };
 
