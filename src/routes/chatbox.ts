@@ -2,8 +2,7 @@ import express from 'express';
 import {
   createChatboxAgent,
   initializeChatboxAgent,
-  processChat,
-  generateResponseFromInstructions
+  processChat
 } from '../agents/ChatboxAgent.js';
 import {
   createSession,
@@ -180,27 +179,19 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
       }
     }
 
-    // Second pass: If content is empty but we have tool results with instructions, generate response
+    // Validate content exists
     let finalContent = content || '';
 
-    if (!finalContent && toolResults.length > 0) {
-      const hasInstructions = toolResults.some(r => r.instruction);
+    if (!finalContent || finalContent.trim() === '') {
+      console.error('❌ LLM returned empty content despite prompt instructions. Tool calls:', toolResults.map(t => t.name));
 
-      if (hasInstructions) {
-        console.log('🔄 Content empty, triggering second pass with tool instructions');
-
-        const secondPassResult = await generateResponseFromInstructions(
-          chatboxAgent,
-          session.messages,
-          toolResults
-        );
-
-        if (secondPassResult.success && secondPassResult.data?.content) {
-          finalContent = secondPassResult.data.content;
-          console.log('✅ Second pass generated content:', finalContent.substring(0, 100));
-        } else {
-          console.log('⚠️ Second pass failed, using empty content');
-        }
+      // Provide helpful fallback based on what tools were called
+      if (toolResults.some(t => t.name.startsWith('capture'))) {
+        finalContent = "Got it! Let me process that information.";
+      } else if (toolResults.some(t => t.name === 'retrieveApplicationStatus')) {
+        finalContent = "Let me look up that information for you.";
+      } else {
+        finalContent = "I'm processing your request. One moment please.";
       }
     }
 
