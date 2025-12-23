@@ -20,103 +20,6 @@ const router = express.Router();
 const chatboxAgent = createChatboxAgent();
 initializeChatboxAgent().catch(console.error);
 
-// Type for tool result entries used in fallback logic
-interface ToolResultEntry {
-  name: string;
-  success: boolean;
-  message: string;
-  data?: any;
-}
-
-// Helper function to construct contextual fallback when LLM returns empty content
-function constructContextualFallback(toolResults: ToolResultEntry[]): string {
-  // Special handling for continue form flow - check this FIRST
-  const getFilledFieldsResult = toolResults.find(r => r.name === 'getFilledFields' && r.success);
-  const openFormResult = toolResults.find(r => r.name === 'captureOpenSBAForm' && r.success);
-
-  if (openFormResult) {
-    const formType = openFormResult.data?.formType || 'SBA_1919';
-    const formName = formType === 'SBA_413' ? 'Form 413' : 'Form 1919';
-
-    // If we have empty fields data, use it
-    if (getFilledFieldsResult?.data) {
-      const formKey = formType === 'SBA_413' ? 'sba413' : 'sba1919';
-      const emptyFields = getFilledFieldsResult.data?.[formKey]?.emptyFields || [];
-
-      if (emptyFields.length > 0) {
-        return `Perfect! ${formName} is now open. You have ${emptyFields.length} fields remaining to complete. Let's start with the first one - what would you like to enter for "${emptyFields[0]}"?`;
-      }
-      return `Great! ${formName} is now open. It looks like all fields are already filled. Would you like to review or update any of them?`;
-    }
-
-    // No empty fields data - generic form open message
-    return `Perfect! ${formName} is now open. Let's continue filling out the remaining fields. I'll highlight each one for you.`;
-  }
-
-  // Handle retrieveAllApplications
-  const allAppsResult = toolResults.find(r => r.name === 'retrieveAllApplications' && r.success);
-  if (allAppsResult) {
-    const count = allAppsResult.data?.applications?.length || 0;
-    if (count > 0) {
-      return `I found ${count} application${count > 1 ? 's' : ''}. Please select the one you'd like to continue with.`;
-    }
-    return "I couldn't find any existing applications. Would you like to start a new one?";
-  }
-
-  // Handle getFilledFields without form open (shouldn't happen often)
-  if (getFilledFieldsResult) {
-    return "I've retrieved your form progress. Which form would you like to continue with - Form 1919 or Form 413?";
-  }
-
-  // Find the last capture tool that was called successfully
-  // Exclude captureHighlightField as it's just a UI update
-  const captureTools = toolResults.filter(r =>
-    r.name.startsWith('capture') &&
-    r.name !== 'captureHighlightField' &&
-    r.success
-  );
-
-  if (captureTools.length === 0) {
-    return "I've noted that information. What else can I help you with?";
-  }
-
-  const lastTool = captureTools[captureTools.length - 1].name;
-
-  // Map tool names to next questions in owner flow
-  const ownerFlowNext: Record<string, string> = {
-    'captureUserTypeNewApplication': "When was your business founded?",
-    'captureYearFounded': "What's your monthly revenue?",
-    'captureMonthlyRevenue': "And what are your monthly expenses?",
-    'captureMonthlyExpenses': "Do you have any existing debt payments? If so, how much per month?",
-    'captureExistingDebtPayment': "How much are you looking to borrow?",
-    'captureRequestedLoanAmount': "Are you a U.S. citizen?",
-    'captureUSCitizen': "What's your credit score?",
-    'captureCreditScore': "Let me calculate your eligibility..."
-  };
-
-  // Map tool names to next questions in buyer flow
-  const buyerFlowNext: Record<string, string> = {
-    'captureUserTypeNewApplication': "When was the business you're looking to buy founded?",
-    'captureYearFounded': "What's the purchase price of the business?",
-    'capturePurchasePrice': "How much cash do you have available for a down payment?",
-    'captureAvailableCash': "What's the business's monthly cash flow?",
-    'captureBusinessCashFlow': "How many years of experience do you have in this industry?",
-    'captureIndustryExperience': "Are you a U.S. citizen?",
-    'captureUSCitizen': "What's your credit score?",
-    'captureCreditScore': "Let me calculate your eligibility..."
-  };
-
-  // Common capture tools that apply to both flows
-  const commonFlowNext: Record<string, string> = {
-    'captureUserName': "What's the name of your business?",
-    'captureBusinessName': "What's your business phone number?",
-    'capturePhoneNumber': "Let me get some more details about your situation."
-  };
-
-  // Try common flow first, then owner flow, then buyer flow
-  return commonFlowNext[lastTool] || ownerFlowNext[lastTool] || buyerFlowNext[lastTool] ||
-    "Got it! What other information can I help you with?";
-}
 
 // ==============================
 // SESSION MANAGEMENT ROUTES
@@ -300,7 +203,11 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
       await addMessage(sessionId, assistantMessageWithTools);
 
       // Build flow-specific continuation instructions
-      let continuationInstruction = "Based on these tool results, continue the conversation naturally. If you're in the middle of collecting information for a loan application, ask for the next piece of information according to the flow.";
+      let continuationInstruction = `Based on these tool results, continue the conversation naturally.
+
+⚠️ MANDATORY: You MUST generate natural language text in your response. Do NOT return empty content.
+
+If you're collecting information for a loan application, ask for the next piece of information according to the flow. Always include a question or statement to continue the conversation.`;
 
       // Check for continue form flow
       const hasOpenFormResult = toolResults.some(r => r.name === 'captureOpenSBAForm');
@@ -335,6 +242,52 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
         continuationInstruction = `You retrieved ${count} application(s) for the user. Tell them how many applications you found and ask them to select one to continue with.`;
       }
 
+      // CRITICAL: Check for form filling in progress (captureHighlightField)
+      const hasHighlightResult = toolResults.some(r => r.name === 'captureHighlightField');
+      if (hasHighlightResult) {
+        // Extract field info from the last highlight call
+        const highlightResults = toolResults.filter(r => r.name === 'captureHighlightField');
+        const lastHighlight = highlightResults[highlightResults.length - 1];
+        const fieldName = lastHighlight.data?.field || 'unknown';
+        const fieldText = lastHighlight.data?.text || '';
+        const formType = lastHighlight.data?.formType || 'SBA_1919';
+
+        if (fieldText && fieldText.trim().length > 0) {
+          // Step 2: Just filled a field with value
+          continuationInstruction = `✅ You just filled the "${fieldName}" field in ${formType} with the value "${fieldText}".
+
+🎯 YOUR NEXT ACTION (MANDATORY):
+According to the form filling protocol, in your NEXT response you MUST:
+1. Call captureHighlightField for the NEXT field in the form sequence with empty text parameter ("")
+2. In the SAME response, generate natural language asking the user for that next field's information
+
+Example correct response structure:
+- Tool calls: [captureHighlightField("nextFieldName", "", "${formType}")]
+- Text: "What's the [next field description]?"
+
+❌ DO NOT:
+- Say "Got it" or acknowledge the previous field
+- Return empty text content
+- Return only tool calls without a question
+
+✅ DO:
+- Move immediately to the next field in the sequence
+- Ask a natural, conversational question about the next field
+- Include BOTH tool call AND natural language text in your response`;
+        } else {
+          // Step 1: Just highlighted empty field
+          continuationInstruction = `✅ You just highlighted the "${fieldName}" field in ${formType} with empty text (to show the user where to enter data).
+
+🎯 YOUR NEXT ACTION (MANDATORY):
+You MUST now generate a natural language question asking the user for information for the "${fieldName}" field.
+
+Example for "${fieldName}":
+Look up this field name in your form instructions and ask the appropriate question in a conversational, natural way.
+
+⚠️ CRITICAL: Your response MUST contain text asking about "${fieldName}". Do NOT return empty content.`;
+        }
+      }
+
       // Auto-highlight first empty field when form is opened in continue flow
       if (hasOpenFormResult && hasFilledFieldsResult) {
         const filledFieldsResult = toolResults.find(r => r.name === 'getFilledFields');
@@ -363,14 +316,24 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
 
       // Create a user message with tool results for the LLM
       // (Claude API doesn't allow system messages in the middle of conversation)
-      // Filter out captureHighlightField results - they're just UI updates, no need to inform LLM
-      const relevantToolResults = toolResults.filter(r => r.name !== 'captureHighlightField');
+      // Filter out captureHighlightField results - they're just UI updates
+      // BUT: Keep them if we're giving specific form filling instructions
+      const relevantToolResults = hasHighlightResult
+        ? toolResults // Keep all results when in form filling mode for context
+        : toolResults.filter(r => r.name !== 'captureHighlightField'); // Otherwise filter out UI-only tools
 
       const toolResultsMessage: ChatMessage = {
         role: 'user',
         content: `[Tool execution results]\n${relevantToolResults.map(r =>
           `- ${r.name}: ${r.success ? 'SUCCESS' : 'FAILED'} - ${r.message}${r.data ? `\nData: ${JSON.stringify(r.data, null, 2)}` : ''}`
-        ).join('\n')}\n\n${continuationInstruction}\n\n🚨 CRITICAL: DO NOT mention tool execution results to the user. DO NOT say "Field highlighted successfully" or "captured successfully". These are internal system messages. Continue the conversation naturally as if the tools ran silently in the background.`,
+        ).join('\n')}\n\n${continuationInstruction}\n\n🚨 CRITICAL INSTRUCTIONS - YOU MUST FOLLOW THESE EXACTLY:
+1. DO NOT mention tool execution results to the user
+2. DO NOT say "Field highlighted successfully" or "captured successfully" or any technical confirmation
+3. DO NOT return empty content - you MUST generate a natural language response
+4. ALWAYS include a question or statement in your response - NEVER return just tool calls without text
+5. These tool results are internal system messages - continue the conversation naturally as if the tools ran silently in the background
+
+⚠️ MANDATORY: Your response MUST contain natural language text that continues the conversation. Tool calls alone are NOT sufficient.`,
         timestamp: new Date()
       };
 
@@ -393,17 +356,26 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
       if (secondResult.success && secondResult.data) {
         finalContent = secondResult.data.content;
 
-        // Validate non-empty response - LLM sometimes returns empty content
+        // Validate non-empty response - This should NEVER happen with proper prompting
         if (!finalContent || finalContent.trim().length === 0) {
-          console.warn(`⚠️ LLM returned empty content after tool execution, constructing contextual fallback`);
-          finalContent = constructContextualFallback(toolResults);
+          console.error(`❌ CRITICAL: LLM returned empty content after tool execution despite explicit instructions`);
+          console.error(`Tool results were:`, JSON.stringify(toolResults.map(r => ({ name: r.name, success: r.success })), null, 2));
+
+          // This is an error condition - the LLM should ALWAYS generate content
+          // Return an error to the user instead of hiding it with a fallback
+          return res.status(500).json({
+            success: false,
+            error: 'AI assistant failed to generate a response. Please try again.'
+          });
         }
 
         console.log(`✅ Got final response from LLM after tool execution`);
       } else {
-        console.warn(`⚠️ Second LLM invocation failed, using contextual fallback`);
-        // Fallback: construct a contextual response based on what tools were called
-        finalContent = constructContextualFallback(toolResults);
+        console.error(`❌ Second LLM invocation failed:`, secondResult.error);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to process message. Please try again.'
+        });
       }
 
       // Create final assistant message with natural language response
