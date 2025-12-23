@@ -1321,6 +1321,89 @@ export const processChat = async (
   }
 };
 
+// Generate response from tool instructions (second pass)
+export const generateResponseFromInstructions = async (
+  agent: AgentState,
+  messages: ChatMessage[],
+  toolResults: { name: string; instruction?: string; data?: any }[]
+): Promise<BaseAgentResponse<{ content: string }>> => {
+  const startTime = Date.now();
+
+  try {
+    // Build instruction prompt from tool results
+    const instructions = toolResults
+      .filter(r => r.instruction)
+      .map(r => {
+        let instruction = `- ${r.name}: ${r.instruction}`;
+        // Include relevant data for context (e.g., eligibility reasons)
+        if (r.data?.reasons) {
+          instruction += ` (Reasons: ${r.data.reasons.join('; ')})`;
+        }
+        if (r.data?.chance) {
+          instruction += ` (Chance: ${r.data.chance})`;
+        }
+        if (r.data?.applications) {
+          instruction += ` (Found ${r.data.applications.length} applications)`;
+        }
+        return instruction;
+      })
+      .join('\n');
+
+    const systemPrompt = `You are a loan specialist assistant. Generate a natural, conversational response based on these tool execution results:
+
+${instructions}
+
+Guidelines:
+- Be conversational and friendly, but professional
+- Do NOT mention tools, instructions, or technical details
+- If there are multiple instructions, address them naturally in sequence
+- Use the data provided to give specific, helpful responses
+- Keep responses concise but informative`;
+
+    const langchainMessages: BaseMessage[] = [
+      new SystemMessage(systemPrompt)
+    ];
+
+    // Add conversation history for context
+    for (const msg of messages) {
+      const hasContent = msg.content && msg.content.trim().length > 0;
+      if (msg.role === 'user' && hasContent) {
+        langchainMessages.push(new HumanMessage(msg.content));
+      } else if (msg.role === 'assistant' && hasContent) {
+        langchainMessages.push(new AIMessage(msg.content));
+      }
+    }
+
+    // Add a prompt to generate the response
+    langchainMessages.push(new HumanMessage('Generate your response based on the instructions above.'));
+
+    console.log(`🔄 Second pass: Generating response from ${toolResults.length} tool instructions`);
+
+    const response = await agent.llm.invoke(langchainMessages);
+    const content = typeof response.content === 'string' ? response.content : '';
+
+    console.log(`✅ Second pass response generated: ${content.substring(0, 100)}...`);
+
+    updateActivity(agent);
+
+    return createResponse(
+      true,
+      { content },
+      undefined,
+      Date.now() - startTime
+    );
+
+  } catch (error) {
+    console.error('❌ Second pass error:', error);
+    return createResponse<{ content: string }>(
+      false,
+      undefined,
+      error instanceof Error ? error.message : 'Failed to generate response',
+      Date.now() - startTime
+    );
+  }
+};
+
 // Get agent capabilities
 export const getChatboxAgentCapabilities = (): string[] => [
   'AI-powered loan application assistance',

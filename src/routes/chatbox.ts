@@ -2,7 +2,8 @@ import express from 'express';
 import {
   createChatboxAgent,
   initializeChatboxAgent,
-  processChat
+  processChat,
+  generateResponseFromInstructions
 } from '../agents/ChatboxAgent.js';
 import {
   createSession,
@@ -163,7 +164,7 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
     const { content, toolCalls } = result.data;
 
     // Execute tool calls and collect results
-    const toolResults: { name: string; success: boolean; message: string; data?: any }[] = [];
+    const toolResults: { name: string; success: boolean; message: string; instruction?: string; data?: any }[] = [];
 
     if (toolCalls && toolCalls.length > 0) {
       for (const toolCall of toolCalls) {
@@ -179,10 +180,34 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
       }
     }
 
+    // Second pass: If content is empty but we have tool results with instructions, generate response
+    let finalContent = content || '';
+
+    if (!finalContent && toolResults.length > 0) {
+      const hasInstructions = toolResults.some(r => r.instruction);
+
+      if (hasInstructions) {
+        console.log('🔄 Content empty, triggering second pass with tool instructions');
+
+        const secondPassResult = await generateResponseFromInstructions(
+          chatboxAgent,
+          session.messages,
+          toolResults
+        );
+
+        if (secondPassResult.success && secondPassResult.data?.content) {
+          finalContent = secondPassResult.data.content;
+          console.log('✅ Second pass generated content:', finalContent.substring(0, 100));
+        } else {
+          console.log('⚠️ Second pass failed, using empty content');
+        }
+      }
+    }
+
     // Create assistant message with tool calls
     const assistantMessage: ChatMessage = {
       role: 'assistant',
-      content: content || '',
+      content: finalContent,
       toolCalls: toolCalls?.map((tc: any) => ({
         name: tc.name,
         arguments: tc.args || {},
@@ -214,7 +239,7 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
     res.json({
       success: true,
       data: {
-        message: content || '',
+        message: finalContent,
         toolResults: toolResults.length > 0 ? toolResults : undefined,
         userData: updatedSession?.userData,
         flow: detectedFlow,
