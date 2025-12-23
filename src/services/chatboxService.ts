@@ -108,6 +108,7 @@ export const deleteSession = async (sessionId: string): Promise<boolean> => {
 interface ToolResult {
   success: boolean;
   message: string;
+  instruction?: string;  // Guides LLM on how to respond in second pass
   data?: any;
 }
 
@@ -137,7 +138,8 @@ export const handleCaptureUserName = async (
 
   return {
     success: true,
-    message: `Got it! Name "${name ?? ''}" has been captured.`
+    message: `Name "${name ?? ''}" captured.`,
+    instruction: "Acknowledge the name and ask about their business name"
   };
 };
 
@@ -162,7 +164,8 @@ export const handleCaptureBusinessName = async (
 
   return {
     success: true,
-    message: `Business name "${businessName ?? ''}" has been captured.`
+    message: `Business name "${businessName ?? ''}" captured.`,
+    instruction: "Acknowledge and ask for the business phone number"
   };
 };
 
@@ -187,7 +190,8 @@ export const handleCaptureBusinessPhone = async (
 
   return {
     success: true,
-    message: 'Business phone captured successfully.'
+    message: 'Business phone captured.',
+    instruction: "Acknowledge the phone number"
   };
 };
 
@@ -212,7 +216,8 @@ export const handleCaptureCreditScore = async (
 
   return {
     success: true,
-    message: 'Credit score captured successfully.'
+    message: 'Credit score captured.',
+    instruction: "Acknowledge and ask how much they're looking to borrow"
   };
 };
 
@@ -237,7 +242,8 @@ export const handleCaptureYearFounded = async (
 
   return {
     success: true,
-    message: 'Year founded captured successfully.'
+    message: 'Year founded captured.',
+    instruction: "Acknowledge and ask about their monthly revenue"
   };
 };
 
@@ -262,7 +268,8 @@ export const handleCaptureUSCitizen = async (
 
   return {
     success: true,
-    message: 'US citizenship status captured successfully.'
+    message: 'US citizenship status captured.',
+    instruction: "Acknowledge and ask about their credit score"
   };
 };
 
@@ -287,7 +294,8 @@ export const handleCaptureAnnualRevenue = async (
 
   return {
     success: true,
-    message: 'Annual revenue captured successfully.'
+    message: 'Annual revenue captured.',
+    instruction: "Acknowledge the annual revenue"
   };
 };
 
@@ -312,7 +320,8 @@ export const handleCaptureMonthlyRevenue = async (
 
   return {
     success: true,
-    message: 'Monthly revenue captured successfully.'
+    message: 'Monthly revenue captured.',
+    instruction: "Acknowledge and ask about their monthly expenses"
   };
 };
 
@@ -337,7 +346,8 @@ export const handleCaptureMonthlyExpenses = async (
 
   return {
     success: true,
-    message: 'Monthly expenses captured successfully.'
+    message: 'Monthly expenses captured.',
+    instruction: "Acknowledge and ask if they have existing debt payments"
   };
 };
 
@@ -362,7 +372,8 @@ export const handleCaptureExistingDebtPayment = async (
 
   return {
     success: true,
-    message: 'Existing debt payment captured successfully.'
+    message: 'Existing debt payment captured.',
+    instruction: "Acknowledge and ask how much they want to borrow"
   };
 };
 
@@ -387,7 +398,8 @@ export const handleCaptureRequestedLoanAmount = async (
 
   return {
     success: true,
-    message: 'Requested loan amount captured successfully.'
+    message: 'Requested loan amount captured.',
+    instruction: "Acknowledge and ask if they are a U.S. citizen"
   };
 };
 
@@ -412,7 +424,8 @@ export const handleCaptureLoanPurpose = async (
 
   return {
     success: true,
-    message: 'Loan purpose captured successfully.'
+    message: 'Loan purpose captured.',
+    instruction: "Acknowledge the loan purpose"
   };
 };
 
@@ -437,7 +450,8 @@ export const handleCapturePurchasePrice = async (
 
   return {
     success: true,
-    message: 'Purchase price captured successfully.'
+    message: 'Purchase price captured.',
+    instruction: "Acknowledge and ask about the business cash flow"
   };
 };
 
@@ -462,7 +476,8 @@ export const handleCaptureAvailableCash = async (
 
   return {
     success: true,
-    message: 'Available cash captured successfully.'
+    message: 'Available cash captured.',
+    instruction: "Acknowledge and ask about their industry experience"
   };
 };
 
@@ -487,7 +502,8 @@ export const handleCaptureBusinessCashFlow = async (
 
   return {
     success: true,
-    message: 'Business cash flow captured successfully.'
+    message: 'Business cash flow captured.',
+    instruction: "Acknowledge and ask how much cash they have available for the purchase"
   };
 };
 
@@ -512,7 +528,8 @@ export const handleCaptureIndustryExperience = async (
 
   return {
     success: true,
-    message: 'Industry experience captured successfully.'
+    message: 'Industry experience captured.',
+    instruction: "Acknowledge and tell them you'll calculate their chances"
   };
 };
 
@@ -537,7 +554,8 @@ export const handleCaptureUserTypeNewApplication = async (
 
   return {
     success: true,
-    message: 'User type captured successfully.'
+    message: 'User type captured.',
+    instruction: "Acknowledge and ask when the business was founded"
   };
 };
 
@@ -562,7 +580,8 @@ export const handleCaptureSellingFinancingPercentage = async (
 
   return {
     success: true,
-    message: 'Seller financing percentage captured successfully.'
+    message: 'Seller financing percentage captured.',
+    instruction: "Acknowledge the seller financing percentage"
   };
 };
 
@@ -587,7 +606,8 @@ export const handleCaptureIfSellerFinancingOnStandbyExists = async (
 
   return {
     success: true,
-    message: 'Seller financing on standby existence captured successfully.'
+    message: 'Seller financing on standby status captured.',
+    instruction: "Acknowledge the seller financing standby status"
   };
 };
 
@@ -635,13 +655,15 @@ export const handleCaptureOpenSBAForm = async (
 
     return {
       success: true,
-      message: `Got it! Form type "${formType ?? ''}" has been opened with ${emptyFields.length} empty fields. Starting with field "${firstEmptyField}".`
+      message: `Form ${formType} opened with ${emptyFields.length} empty fields. Starting with "${firstEmptyField}".`,
+      instruction: "Tell them you're opening the form and will guide them through it"
     };
   }
 
   return {
     success: true,
-    message: `Got it! Form type "${formType ?? ''}" has been captured.`
+    message: `Form ${formType} opened.`,
+    instruction: "Tell them you're opening the form and will guide them through it"
   };
 };
 
@@ -678,7 +700,8 @@ export const handleCaptureHighlightField = async (
 
   return {
     success: true,
-    message: `${formLabel} Field "${field}" highlighted successfully${text ? ' with text' : ''}.`
+    message: `${formLabel} Field "${field}" highlighted${text ? ' and filled' : ''}.`,
+    instruction: "Ask about the next field in the form"
   };
 };
 
@@ -755,7 +778,8 @@ export const handleCaptureCheckboxSelection = async (
 
   return {
     success: true,
-    message: `${formLabel} Checkbox "${value}" in group "${group}" captured successfully.`,
+    message: `${formLabel} Checkbox "${value}" in group "${group}" captured.`,
+    instruction: "Acknowledge the selection briefly",
     data: { fieldName, groupCheckboxes }
   };
 };
@@ -779,7 +803,8 @@ export const handleCaptureLoan = async (
 
   return {
     success: true,
-    message: 'Loan information captured successfully.'
+    message: 'Loan information captured.',
+    instruction: "Acknowledge the loan information"
   };
 };
 
@@ -807,6 +832,7 @@ export const handleDetectConversationFlow = async (
   return {
     success: true,
     message: `Flow detected: ${flow}`,
+    instruction: "Route to appropriate flow and ask the first question",
     data: { flow }
   };
 };
@@ -901,6 +927,7 @@ export const handleChancesUserSBAApprovedBUYER = async (
     return {
       success: true,
       message: `Eligibility calculated: ${result.chance} chance`,
+      instruction: "Present their approval chances and list the reasons. If eligible, ask if they're ready to fill out the form",
       data: {
         score: result.score,
         chance: result.chance,
@@ -1004,6 +1031,7 @@ export const handleChancesUserSBAApprovedOWNER = async (
     return {
       success: true,
       message: `Eligibility calculated: ${result.chance} chance`,
+      instruction: "Present their approval chances and list the reasons. If eligible, ask if they're ready to fill out the form",
       data: {
         score: result.score,
         chance: result.chance,
@@ -1087,6 +1115,7 @@ export const handleRetrieveApplicationStatus = async (
     return {
       success: true,
       message: 'Application found',
+      instruction: "Summarize their application status based on the data returned",
       data: {
         applicationId: application._id.toString(),
         status: application.status,
@@ -1177,6 +1206,7 @@ export const handleGetFilledFields = async (
     return {
       success: true,
       message: 'Field analysis complete',
+      instruction: "Tell them you found their application and will continue from where they left off",
       data: {
         sba1919: {
           filledFields: result1919.filledFields,
@@ -1229,6 +1259,7 @@ export const handleRetrieveAllApplications = async (
     return {
       success: true,
       message: `Found ${applicationList.length} applications`,
+      instruction: "List their applications and ask them to select one",
       data: { applications: applicationList }
     };
   } catch (error) {
@@ -1263,6 +1294,7 @@ export const handleEndConversation = async (
   return {
     success: true,
     message: `Conversation ended: ${reason}`,
+    instruction: "Thank them for chatting and wish them well",
     data: { reason }
   };
 };
