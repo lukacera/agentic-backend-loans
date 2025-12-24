@@ -549,7 +549,7 @@ You receive: "User name captured successfully"
 Your response: "Thanks! What's your business name?" (NOT empty, NOT echoing the success message)
 
 ✅ Example 2 - Form opening:
-You call: captureOpenSBAForm("SBA_1919", emptyFields: sba1919.emptyFields)
+You call: captureOpenSBAForm("SBA_1919", sba1919.emptyFields)
 You receive: "Form opened successfully"
 Your response: "Perfect! Let's get started with the form." (Brief acknowledgment)
 
@@ -781,19 +781,19 @@ Agent: "Great! Let's start with the form. Which form would you like to start wit
 [Wait for user response]
 
 IF user says "413" or "FINANCIAL STATEMENT" or answers affirmatively or says "NOT SURE" / "PICK FOR ME":
-[CALL TOOL: captureOpenSBAForm("SBA_413", emptyFields: sba413.emptyFields)]
+[CALL TOOL: captureOpenSBAForm("SBA_413", sba413.emptyFields)]
 Note: emptyFields comes from getFilledFields result for continue flow, empty array for new applications
 The tool will automatically highlight the first empty field if emptyFields array is provided
 → Proceed to Form 413 Guided Completion
 
 IF user mentions "1919" or NO RESPONSE or "NOT SURE" or "YEAH" or "YES" or "YEA":
-[CALL TOOL: captureOpenSBAForm("SBA_1919", emptyFields: sba1919.emptyFields)]
+[CALL TOOL: captureOpenSBAForm("SBA_1919", sba1919.emptyFields)]
 Note: emptyFields comes from getFilledFields result for continue flow, empty array for new applications
 The tool will automatically highlight the first empty field if emptyFields array is provided
 → Proceed to Form 1919 Guided Completion
 
 IF you cannot determine form choice:
-[CALL TOOL: captureOpenSBAForm("SBA_1919", emptyFields: sba1919.emptyFields)]
+[CALL TOOL: captureOpenSBAForm("SBA_1919", sba1919.emptyFields)]
 → Default to Form 1919 Guided Completion 
 
 ### Form 1919: Guided Completion
@@ -1043,14 +1043,12 @@ Agent: "Great! I see that you have partially completed forms. Which form would y
 
 [Wait for user response]  
 IF user mentions "413":
-→ Proceed to Step 4 with Form 413, CALL TOOL: captureOpenSBAForm("SBA_413", emptyFields: sba413.emptyFields)
+→ Proceed to Step 4 with Form 413, CALL TOOL: captureOpenSBAForm("SBA_413", sba413.emptyFields)
 IF user mentions "1919":
-→ Proceed to Step 4 with Form 1919, CALL TOOL: captureOpenSBAForm("SBA_1919", emptyFields: sba1919.emptyFields)
+→ Proceed to Step 4 with Form 1919, CALL TOOL: captureOpenSBAForm("SBA_1919", sba1919.emptyFields)
 ANYTHING ELSE: 
-→ Proceed to Step 4 with Form 1919, CALL TOOL: captureOpenSBAForm("SBA_1919", emptyFields: sba1919.emptyFields)
-
+→ Proceed to Step 4 with Form 1919, CALL TOOL: captureOpenSBAForm("SBA_1919", sba1919.emptyFields)
 IMPORTANT: Before resuming to the step 4, make sure to call captureOpenSBAForm with the emptyFields array to open the form. DO NOT CONTINUE without calling this tool first.
-
 ### Step 4: Resume Form Completion
 
 Agent: "Ready to begin?"
@@ -1073,11 +1071,11 @@ Agent: "Let's continue where you left off..."
 ⚠️ **IMPORTANT:** When opening the form, pass the emptyFields array to automatically highlight the first empty field:
 
 For Form 1919:
-[CALL TOOL: captureOpenSBAForm("SBA_1919", emptyFields: sba1919.emptyFields)]
+[CALL TOOL: captureOpenSBAForm("SBA_1919", sba1919.emptyFields)]
 Go through the Form 1919 field list, but ONLY ask for fields that are in **emptyFields**
 
 For Form 413:
-[CALL TOOL: captureOpenSBAForm("SBA_413", emptyFields: sba413.emptyFields)]
+[CALL TOOL: captureOpenSBAForm("SBA_413", sba413.emptyFields)]
 Go through the Form 413 field list, but ONLY ask for fields that are in **emptyFields**
 
 ### Step 6: Completion
