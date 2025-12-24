@@ -1,4 +1,4 @@
-import { ChatAnthropic } from '@langchain/anthropic';
+import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { RunnableSequence } from '@langchain/core/runnables';
@@ -11,7 +11,7 @@ export interface AgentState {
   startTime: Date;
   tasksProcessed: number;
   lastActivity: Date;
-  llm: ChatAnthropic;
+  llm: ChatOpenAI;
 }
 
 // Create an agent instance
@@ -24,10 +24,9 @@ export const createAgent = (name: string, config: Partial<AgentConfig> = {}): Ag
     ...config
   };
 
-  const llm = new ChatAnthropic({
-    anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-    modelName: "claude-sonnet-4-20250514",
-    temperature: 0.4
+  const llm = new ChatOpenAI({
+    openAIApiKey: process.env.OPENAI_API_KEY,
+    modelName: "gpt-5-nano"
   });
 
   return {
