@@ -29,7 +29,6 @@ export const createSession = async (): Promise<IChatSessionDocument> => {
     userData: {}
   });
   await session.save();
-  console.log(`✅ Created chat session: ${sessionId}`);
   return session;
 };
 
@@ -638,7 +637,6 @@ export const handleCaptureOpenSBAForm = async (
     const firstEmptyField = emptyFields[0];
     const activeFormType = (formType as 'SBA_1919' | 'SBA_413') || 'SBA_1919';
     const formLabel = activeFormType === 'SBA_413' ? '[Form 413]' : '[Form 1919]';
-    console.log(`✨ ${formLabel} Preparing to auto-highlight first empty field: ${firstEmptyField}`);
     // Delay highlighting by 3 seconds to allow form to render
     setTimeout(() => {
       websocketService.broadcast('highlight-fields', {
@@ -650,7 +648,6 @@ export const handleCaptureOpenSBAForm = async (
         source: 'chat'
       }, rooms);
 
-      console.log(`✨ ${formLabel} Auto-highlighted first empty field: ${firstEmptyField} (after 3s delay)`);
     }, 3000);
 
     return {
@@ -676,10 +673,8 @@ export const handleCaptureHighlightField = async (
 ): Promise<ToolResult> => {
   const { field, text, formType } = args;
   const rooms = getRooms(sessionId);
-  console.log(`✨Highlighted field: ${field} with text: "${text || 'none'}" for session ${sessionId}`);
 
   if (!field) {
-    console.log("field is not found")
     return {
       success: false,
       message: 'Field name is required'
@@ -753,7 +748,6 @@ export const handleCaptureSkipField = async (
     nextField = emptyFields[currentIndex + 1];
   }
 
-  console.log(`⏭️ ${formLabel} Skipping field "${currentField}", highlighting next field: "${nextField}"`);
 
   // Broadcast highlight event for the next field
   websocketService.broadcast('highlight-fields', {
@@ -825,7 +819,6 @@ export const handleCaptureCheckboxSelection = async (
     };
   }
 
-  console.log(`📋 ${formLabel} Capturing checkbox selection: ${group} = ${value} -> field: ${fieldName}`);
 
   // Store PDF field name in session userData
   await updateUserData(sessionId, { [fieldName]: true });
@@ -834,7 +827,6 @@ export const handleCaptureCheckboxSelection = async (
   let groupCheckboxes: string[] | undefined = undefined;
   if (groupConfig.exclusive) {
     groupCheckboxes = getCheckboxesFn(group);
-    console.log(`📋 ${formLabel} Exclusive group - all checkboxes:`, groupCheckboxes);
   }
 
   // Broadcast to WebSocket
@@ -900,7 +892,6 @@ export const handleDetectConversationFlow = async (
   }
 
   // No MongoDB update needed - just return the flow
-  console.log(`✅ Conversation flow detected: ${flow}`);
   return {
     success: true,
     message: `Flow detected: ${flow}`,
@@ -993,8 +984,6 @@ export const handleChancesUserSBAApprovedBUYER = async (
       }))
     );
 
-    console.log(`✅ SBA eligibility calculated for BUYER: ${result.chance} (score: ${result.score})`);
-    console.log(`✅ Generated ${documentsWithUrls.length} presigned URLs for draft documents`);
 
     return {
       success: true,
@@ -1154,7 +1143,6 @@ export const handleRetrieveApplicationStatus = async (
       };
     }
 
-    console.log(`✅ Application retrieved: ${application._id}`);
 
     // Generate presigned URLs for all document types
     const expiresIn = 3600; // 1 hour default
@@ -1252,7 +1240,6 @@ export const handleGetFilledFields = async (
       try {
         const pdfBuffer = await downloadDocument(document.s3Key);
         const result = await extractFormFieldValues(pdfBuffer);
-        console.log(`📋 [${formType}] Retrieved: ${result.filledFields.length} filled, ${result.emptyFields.length} empty`);
         return result;
       } catch (error) {
         console.warn(`⚠️ Could not process ${formType}:`, error);
@@ -1265,9 +1252,6 @@ export const handleGetFilledFields = async (
       doc1919 ? processForm(doc1919, 'SBA_1919') : Promise.resolve({ filledFields: [], emptyFields: [], allFields: {} }),
       doc413 ? processForm(doc413, 'SBA_413') : Promise.resolve({ filledFields: [], emptyFields: [], allFields: {} })
     ]);
-
-    console.log("result 191:")
-    console.log(result1919);
 
     // Map draft documents to ChatDocument[]
     const documents: ChatDocument[] = await Promise.all(
@@ -1329,7 +1313,6 @@ export const handleRetrieveAllApplications = async (
       lastUpdated: app.updatedAt
     }));
 
-    console.log(`✅ Retrieved ${applicationList.length} applications for selection`);
 
     return {
       success: true,
@@ -1355,7 +1338,6 @@ export const handleEndConversation = async (
 ): Promise<ToolResult> => {
   const { reason = 'completed' } = args;
 
-  console.log(`✅ Conversation ended: ${sessionId} (reason: ${reason})`);
 
   // Optionally broadcast conversation end event
   const rooms = getRooms(sessionId);
@@ -1386,7 +1368,6 @@ export const executeToolCall = async (
   toolName: string,
   args: Record<string, any>
 ): Promise<ToolResult> => {
-  console.log("executeToolCall:", toolName, args);
   switch (toolName) {
     case 'captureUserName':
       return handleCaptureUserName(sessionId, args);
