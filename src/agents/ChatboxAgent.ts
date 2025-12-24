@@ -774,7 +774,9 @@ IF you cannot determine form choice:
 ### Form 1919: Guided Completion
 
 ⚠️ REMINDER: Follow the CRITICAL FORM FILLING PROTOCOL above - TWO calls per field!
-
+CRITICAL: Always do step 1 (highlight empty) FIRST, then ask the question, wait for user response, then do step 2 (fill with actual value), THEN IMMEDIATELY do step 1 for the NEXT field in the SAME response.
+CRITICAL: If user says "skip", skip step 4 but still do step 5 (move to next field immediately)
+CRITICAL: ALWAYS START from the first empty field if continuing an existing form
 Agent: "Perfect! Let's begin with Form 1919. I'll highlight each field on your screen, and you tell me what to put. If you don't have something, just say 'skip'. Ready?"
 
 **MANDATORY PROCESS FOR EACH FIELD:**
@@ -1001,9 +1003,19 @@ Use filledFields arrays to know what information has already been provided.
 
 Store the emptyFields array for both forms - these are the ONLY fields you will ask about.
 
-### Step 3: Resume Form Completion
+### Step 3: Ask user which form to continue
 
-Agent: "Alright, I found your application! Looks like you've already filled out some fields. Let's continue with the remaining ones. This should only take a few minutes. Ready?"
+Agent: "Great! I see that you have partially completed forms. Which form would you like to continue with? Form 1919 for Business Loan Application, or Form 413 for Personal Financial Statement?"
+
+[Wait for user response]  
+IF user says "413" or "PERSONAL FINANCIAL" or "FINANCIAL STATEMENT":
+→ Proceed to Step 4 with Form 413, CALL TOOL: captureOpenSBAForm("SBA_413", emptyFields: sba413.emptyFields)
+ANYTHING ELSE: 
+→ Proceed to Step 4 with Form 1919, CALL TOOL: captureOpenSBAForm("SBA_1919", emptyFields: sba1919.emptyFields)
+
+### Step 4: Resume Form Completion
+
+Agent: "Ready to begin?"
 
 [Wait for user confirmation]
 
@@ -1014,7 +1026,7 @@ IF user says NO/LATER:
 Agent: "No problem! Your progress is saved. Just message back when you're ready to finish up."
 [CALL TOOL: endConversation]
 
-### Step 4: Continue Where They Left Off
+### Step 5: Continue Where They Left Off
 
 ⚠️ **CRITICAL:** Before asking about each field, check if it exists in the **emptyFields** array from Step 2. **SKIP** any field that is NOT in emptyFields.
 
@@ -1030,7 +1042,7 @@ For Form 413:
 [CALL TOOL: captureOpenSBAForm("SBA_413", emptyFields: sba413.emptyFields)]
 Go through the Form 413 field list, but ONLY ask for fields that are in **emptyFields**
 
-### Step 5: Completion
+### Step 6: Completion
 
 Agent: "Perfect! We've completed all the remaining fields. Your form is now fully filled out. You can review it on your screen and submit when you're ready. Is there anything you'd like me to change?"
 
@@ -1307,13 +1319,18 @@ export const processChat = async (
       ));
     }
 
-    console.log(`🔧 Binding ${CHAT_TOOLS.length} tools to LLM`);
-
-    // Create LLM with tools bound
-    const llmWithTools = agent.llm.bindTools(CHAT_TOOLS);
-
-    // Invoke the LLM
-    const response = await llmWithTools.invoke(langchainMessages);
+    // Invoke LLM differently based on pass
+    let response;
+    if (isSecondPass) {
+      // Second pass: NO tools - force text-only response
+      console.log(`💬 Second pass: Invoking LLM WITHOUT tools (text-only mode)`);
+      response = await agent.llm.invoke(langchainMessages);
+    } else {
+      // First pass: Bind tools for function calling
+      console.log(`🔧 First pass: Binding ${CHAT_TOOLS.length} tools to LLM`);
+      const llmWithTools = agent.llm.bindTools(CHAT_TOOLS);
+      response = await llmWithTools.invoke(langchainMessages);
+    }
 
     updateActivity(agent);
 
