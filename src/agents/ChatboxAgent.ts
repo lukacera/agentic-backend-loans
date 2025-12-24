@@ -1240,7 +1240,6 @@ export const createChatboxAgent = (): AgentState => {
 
 // Initialize chatbox agent
 export const initializeChatboxAgent = async (): Promise<void> => {
-  console.log('✅ Chatbox agent initialized successfully');
 };
 
 // Tool result type for second pass
@@ -1290,8 +1289,6 @@ export const processChat = async (
 
     // SECOND PASS: Add AIMessage with tool_calls + ToolMessages with results
     if (isSecondPass && previousToolCalls && previousToolCalls.length > 0) {
-      console.log(`🔄 Second pass: Adding ${previousToolCalls.length} tool calls and ${toolResults.length} tool results`);
-
       // Add AIMessage with the tool calls from first pass
       langchainMessages.push(new AIMessage({
         content: '',
@@ -1323,11 +1320,9 @@ export const processChat = async (
     let response;
     if (isSecondPass) {
       // Second pass: NO tools - force text-only response
-      console.log(`💬 Second pass: Invoking LLM WITHOUT tools (text-only mode)`);
       response = await agent.llm.invoke(langchainMessages);
     } else {
       // First pass: Bind tools for function calling
-      console.log(`🔧 First pass: Binding ${CHAT_TOOLS.length} tools to LLM`);
       const llmWithTools = agent.llm.bindTools(CHAT_TOOLS);
       response = await llmWithTools.invoke(langchainMessages);
     }
@@ -1344,7 +1339,6 @@ export const processChat = async (
     // ✅ KEY CHANGE: Different returns based on pass
     if (isSecondPass) {
       // Second pass: Return ONLY natural language content
-      console.log('✅ Second pass complete - returning content only');
       return createResponse(
         true,
         { content },  // No toolCalls in response
@@ -1353,7 +1347,6 @@ export const processChat = async (
       );
     } else if (toolCalls.length > 0) {
       // First pass with tool calls: Return tool calls for execution
-      console.log(`🔧 First pass - ${toolCalls.length} tool calls detected`);
       return createResponse(
         true,
         { content: '', toolCalls },  // Empty content, return toolCalls for execution
@@ -1362,7 +1355,6 @@ export const processChat = async (
       );
     } else {
       // No tool calls needed: Return content directly
-      console.log('💬 No tool calls needed - returning content');
       return createResponse(
         true,
         { content },
@@ -1439,12 +1431,10 @@ export const generateResponseFromInstructions = async (
     // Add a prompt to generate the response
     langchainMessages.push(new HumanMessage('Generate your response based on the instructions above.'));
 
-    console.log(`🔄 Second pass: Generating response from ${toolResults.length} tool instructions`);
 
     const response = await agent.llm.invoke(langchainMessages);
     const content = typeof response.content === 'string' ? response.content : '';
 
-    console.log(`✅ Second pass response generated: ${content.substring(0, 100)}...`);
 
     updateActivity(agent);
 

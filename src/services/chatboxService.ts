@@ -1311,6 +1311,7 @@ export const executeToolCall = async (
   toolName: string,
   args: Record<string, any>
 ): Promise<ToolResult> => {
+  console.log("executeToolCall:", toolName, args);
   switch (toolName) {
     case 'captureUserName':
       return handleCaptureUserName(sessionId, args);

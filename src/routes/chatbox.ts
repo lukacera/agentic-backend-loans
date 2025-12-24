@@ -203,7 +203,6 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
 
       if (secondResult.success && secondResult.data?.content) {
         finalContent = secondResult.data.content;
-        console.log(`✅ Second pass response: ${finalContent.substring(0, 100)}...`);
       } else {
         console.warn('⚠️ Second pass failed or returned empty content, using fallback');
       }
