@@ -2,7 +2,8 @@ import express from 'express';
 import {
   createChatboxAgent,
   initializeChatboxAgent,
-  processChat
+  processChat,
+  ToolResultForLLM
 } from '../agents/ChatboxAgent.js';
 import {
   createSession,
@@ -146,53 +147,71 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
     };
     await addMessage(sessionId, userMessage);
 
-    // Process with ChatboxAgent
-    const result = await processChat(
+    // ========== FIRST PASS: Get tool calls from LLM ==========
+    console.log(`📤 First pass: Processing user message`);
+    const firstResult = await processChat(
       chatboxAgent,
       session.messages,
       message.trim()
     );
 
-    if (!result.success || !result.data) {
+    if (!firstResult.success || !firstResult.data) {
       return res.status(500).json({
         success: false,
-        error: result.error || 'Failed to process message'
+        error: firstResult.error || 'Failed to process message'
       });
     }
 
-    const { content, toolCalls } = result.data;
+    const { toolCalls } = firstResult.data;
+    let finalContent = firstResult.data.content || '';
 
     // Execute tool calls and collect results
     const toolResults: { name: string; success: boolean; message: string; instruction?: string; data?: any }[] = [];
+    const toolResultsForLLM: ToolResultForLLM[] = [];
 
     if (toolCalls && toolCalls.length > 0) {
+      console.log(`🔧 Executing ${toolCalls.length} tool calls`);
+
       for (const toolCall of toolCalls) {
         const toolResult = await executeToolCall(
           sessionId,
           toolCall.name,
           toolCall.args || {}
         );
+
+        // Store for API response
         toolResults.push({
           name: toolCall.name,
           ...toolResult
         });
+
+        // Store for second LLM pass
+        toolResultsForLLM.push({
+          toolCallId: toolCall.id || `call_${toolCall.name}_${Date.now()}`,
+          name: toolCall.name,
+          result: JSON.stringify(toolResult)
+        });
+      }
+
+      const secondResult = await processChat(
+        chatboxAgent,
+        session.messages,
+        message.trim(),
+        toolResultsForLLM,
+        toolCalls
+      );
+
+      if (secondResult.success && secondResult.data?.content) {
+        finalContent = secondResult.data.content;
+        console.log(`✅ Second pass response: ${finalContent.substring(0, 100)}...`);
+      } else {
+        console.warn('⚠️ Second pass failed or returned empty content, using fallback');
       }
     }
 
-    // Validate content exists
-    let finalContent = content || '';
-
+    // Fallback if still no content
     if (!finalContent || finalContent.trim() === '') {
-      console.error('❌ LLM returned empty content despite prompt instructions. Tool calls:', toolResults.map(t => t.name));
-
-      // Provide helpful fallback based on what tools were called
-      if (toolResults.some(t => t.name.startsWith('capture'))) {
-        finalContent = "Got it! Let me process that information.";
-      } else if (toolResults.some(t => t.name === 'retrieveApplicationStatus')) {
-        finalContent = "Let me look up that information for you.";
-      } else {
-        finalContent = "I'm processing your request. One moment please.";
-      }
+      throw new Error('LLM failed to generate a response after tool execution.');
     }
 
     // Create assistant message with tool calls
@@ -217,7 +236,6 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
     let detectedFlow: ConversationFlow = null;
     for (const result of toolResults) {
       if (result.name === 'detectConversationFlow' && result.success && result.data?.flow) {
-        console.log('Detected conversation flow:', result.data.flow);
         detectedFlow = result.data.flow;
         break;
       }

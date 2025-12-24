@@ -1,4 +1,4 @@
-import { HumanMessage, AIMessage, SystemMessage, BaseMessage, ToolCall } from '@langchain/core/messages';
+import { HumanMessage, AIMessage, SystemMessage, BaseMessage, ToolCall, ToolMessage } from '@langchain/core/messages';
 import { AgentState, createAgent, createResponse, updateActivity } from './BaseAgent.js';
 import { BaseAgentResponse, ChatMessage, ToolDefinition } from '../types/index.js';
 
@@ -497,10 +497,11 @@ Example of what to do instead:
 ✅ After calling captureCreditScore(720) and receiving success: "Excellent. How much are you looking to borrow?"
 
 [Identity]
-You are a helpful and knowledgeable loan specialist/broker assisting users with:
+You are a helpful and knowledgeable loan specialist/broker chatbox assisting users with:
 1. Exploring loan options for their business (NEW applications)
 2. Answering questions about existing loan applications
 3. Continuing to fill out partially completed forms
+CRITICAL: Tool calls happen silently. The user should ONLY see your natural language response, never any indication that a tool was called or what it returned.
 
 [Communication Style]
 - Informative and comprehensive, yet concise
@@ -513,6 +514,7 @@ After you call tools, you'll receive their execution results in a follow-up mess
 1. **NEVER echo tool success messages** - Do NOT repeat technical messages like "X captured successfully" to the user, only use them to inform your next response(e.g "Got it", "Perfect", "Thanks", "Understood" are acceptable brief acknowledgments)
 2. **ALWAYS generate natural language response** - Continue the conversation as if the tool ran silently in the background
 3. **Your response MUST include text** - Tool calls alone without natural language are NOT allowed
+4. **NEVER call more tools after receiving tool results** - When you see ToolMessage results, your ONLY job is to respond with conversational text. You are a chatbox - your response goes directly to the user's chat screen. No more tool calls.
 
 **Examples of what to do:**
 
@@ -1229,13 +1231,26 @@ export const initializeChatboxAgent = async (): Promise<void> => {
   console.log('✅ Chatbox agent initialized successfully');
 };
 
+// Tool result type for second pass
+export interface ToolResultForLLM {
+  toolCallId: string;
+  name: string;
+  result: string;
+}
+
 // Process chat message with function calling
+// Supports two-pass flow:
+// - First pass: userMessage provided, no toolResults → returns tool calls
+// - Second pass: toolResults provided with previousToolCalls → returns final response
 export const processChat = async (
   agent: AgentState,
   messages: ChatMessage[],
-  userMessage: string
-): Promise<BaseAgentResponse<{ content: string; toolCalls: any[] }>> => {
+  userMessage: string,
+  toolResults?: ToolResultForLLM[],
+  previousToolCalls?: any[]
+): Promise<BaseAgentResponse<{ content: string; toolCalls?: any[] }>> => {
   const startTime = Date.now();
+  const isSecondPass = toolResults && toolResults.length > 0;
 
   try {
     // Build message history for the LLM
@@ -1245,8 +1260,6 @@ export const processChat = async (
 
     // Add conversation history
     for (const msg of messages) {
-      // Claude API requires all messages to have non-empty content
-      // (except for optional final assistant message)
       const hasContent = msg.content && msg.content.trim().length > 0;
 
       if (msg.role === 'user' && hasContent) {
@@ -1256,38 +1269,51 @@ export const processChat = async (
       } else if (msg.role === 'system' && hasContent) {
         langchainMessages.push(new SystemMessage(msg.content));
       }
-      // Skip messages with empty content to satisfy Claude API requirements
     }
 
     // Add the new user message only if it's not empty
-    // (for tool result continuation, userMessage may be empty)
     if (userMessage && userMessage.trim().length > 0) {
       langchainMessages.push(new HumanMessage(userMessage));
     }
 
-    // Convert tools from OpenAI format to LangChain Anthropic format
-    // LangChain Anthropic expects: { name, description, input_schema }
-    // Current format: { type: 'function', function: { name, description, parameters } }
-    const langchainTools = CHAT_TOOLS.map(tool => ({
-      name: tool.function.name,
-      description: tool.function.description,
-      input_schema: tool.function.parameters
-    }));
+    // SECOND PASS: Add AIMessage with tool_calls + ToolMessages with results
+    if (isSecondPass && previousToolCalls && previousToolCalls.length > 0) {
+      console.log(`🔄 Second pass: Adding ${previousToolCalls.length} tool calls and ${toolResults.length} tool results`);
 
-    console.log(`🔧 Binding ${langchainTools.length} tools to LLM`);
+      // Add AIMessage with the tool calls from first pass
+      langchainMessages.push(new AIMessage({
+        content: '',
+        tool_calls: previousToolCalls.map(tc => ({
+          id: tc.id,
+          name: tc.name,
+          args: tc.args || {}
+        }))
+      }));
+
+      // Add ToolMessage for each tool result
+      for (const tr of toolResults) {
+        langchainMessages.push(new ToolMessage({
+          tool_call_id: tr.toolCallId,
+          content: tr.result
+        }));
+      }
+
+      // Add instruction to respond with content only - no more tool calls
+      langchainMessages.push(new SystemMessage(
+        'You have received the tool results above. Now respond to the user with ONLY natural language text. ' +
+        'Do NOT call any more tools. Your response goes directly to the chat UI. ' +
+        'Acknowledge what was captured briefly and ask the next question in the flow.' + 
+        'TOOL RESULTS MUST NOT BE INCLUDED IN THE RESPONSE.'
+      ));
+    }
+
+    console.log(`🔧 Binding ${CHAT_TOOLS.length} tools to LLM`);
 
     // Create LLM with tools bound
-    const llmWithTools = agent.llm.bindTools(langchainTools);
+    const llmWithTools = agent.llm.bindTools(CHAT_TOOLS);
 
     // Invoke the LLM
-    console.log(`📤 Invoking LLM with ${langchainMessages.length} messages`);
     const response = await llmWithTools.invoke(langchainMessages);
-
-    console.log(`📥 LLM Response:`, {
-      contentLength: typeof response.content === 'string' ? response.content.length : 0,
-      toolCallsCount: response.tool_calls?.length || 0,
-      toolNames: response.tool_calls?.map((tc: ToolCall) => tc.name) || []
-    });
 
     updateActivity(agent);
 
@@ -1298,21 +1324,39 @@ export const processChat = async (
 
     const toolCalls = response.tool_calls || [];
 
-    console.log(`💬 ${agent.name} response:`, {
-      contentPreview: content.substring(0, 100),
-      toolCallsCount: toolCalls.length,
-      toolNames: toolCalls.map((tc: ToolCall) => tc.name)
-    });
-    return createResponse(
-      true,
-      { content, toolCalls },
-      undefined,
-      Date.now() - startTime
-    );
+    // ✅ KEY CHANGE: Different returns based on pass
+    if (isSecondPass) {
+      // Second pass: Return ONLY natural language content
+      console.log('✅ Second pass complete - returning content only');
+      return createResponse(
+        true,
+        { content },  // No toolCalls in response
+        undefined,
+        Date.now() - startTime
+      );
+    } else if (toolCalls.length > 0) {
+      // First pass with tool calls: Return tool calls for execution
+      console.log(`🔧 First pass - ${toolCalls.length} tool calls detected`);
+      return createResponse(
+        true,
+        { content: '', toolCalls },  // Empty content, return toolCalls for execution
+        undefined,
+        Date.now() - startTime
+      );
+    } else {
+      // No tool calls needed: Return content directly
+      console.log('💬 No tool calls needed - returning content');
+      return createResponse(
+        true,
+        { content },
+        undefined,
+        Date.now() - startTime
+      );
+    }
 
   } catch (error) {
     console.error('❌ Chatbox processing error:', error);
-    return createResponse<{ content: string; toolCalls: any[] }>(
+    return createResponse<{ content: string; toolCalls?: any[] }>(
       false,
       undefined,
       error instanceof Error ? error.message : 'Failed to process chat message',
@@ -1351,14 +1395,15 @@ export const generateResponseFromInstructions = async (
 
     const systemPrompt = `You are a loan specialist assistant. Generate a natural, conversational response based on these tool execution results:
 
-${instructions}
+    ${instructions}
 
-Guidelines:
-- Be conversational and friendly, but professional
-- Do NOT mention tools, instructions, or technical details
-- If there are multiple instructions, address them naturally in sequence
-- Use the data provided to give specific, helpful responses
-- Keep responses concise but informative`;
+    Guidelines:
+    - Be conversational and friendly, but professional
+    - Do NOT mention tools, instructions, or technical details
+    - If there are multiple instructions, address them naturally in sequence
+    - Use the data provided to give specific, helpful responses
+    - Keep toolResults empty ALL THE TIME
+    - Ensure that content message is not empty`;
 
     const langchainMessages: BaseMessage[] = [
       new SystemMessage(systemPrompt)

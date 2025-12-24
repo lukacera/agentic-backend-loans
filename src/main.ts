@@ -71,7 +71,7 @@ const vapi = new VapiClient({
 const createLLM = () => {
   return new ChatOpenAI({
     openAIApiKey: process.env.OPENAI_API_KEY,
-    modelName: "gpt-5-nano"
+    modelName: "gpt-4o"
   });
 };
 
