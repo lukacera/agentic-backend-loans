@@ -653,7 +653,7 @@ export const handleCaptureOpenSBAForm = async (
     return {
       success: true,
       message: `Form ${formType} opened with ${emptyFields.length} empty fields. Starting with "${firstEmptyField}".`,
-      instruction: "Tell them you're opening the form and will guide them through it"
+      instruction: `Tell them you're opening ${formType} and starting with the first field: "${firstEmptyField}". Ask about that field.`
     };
   }
 
@@ -695,8 +695,16 @@ export const handleCaptureHighlightField = async (
 
   return {
     success: true,
-    message: `${formLabel} Field "${field}" highlighted${text ? ' and filled' : ''}.`,
-    instruction: "Ask about the next field in the form"
+    message: `${formLabel} Field "${field}" ${text ? 'filled with value and ' : ''}highlighted.`,
+    instruction: text
+      ? `Acknowledge the value was captured and ask about the next field in the form sequence`
+      : `Ask the user for this field's value`,
+    data: {
+      field,
+      text,
+      formType,
+      filled: !!text  // Boolean indicating if field was filled or just highlighted
+    }
   };
 };
 
@@ -762,7 +770,7 @@ export const handleCaptureSkipField = async (
   return {
     success: true,
     message: `${formLabel} Skipped "${currentField}", now highlighting "${nextField}".`,
-    instruction: `Ask about the field "${nextField}"`,
+    instruction: `The next empty field is "${nextField}". Ask the user about this field.`,
     data: {
       skippedField: currentField,
       nextField,

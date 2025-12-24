@@ -348,7 +348,7 @@ export const CHAT_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'captureSkipField',
-      description: 'Skip the current field and highlight the next empty field. Call this when the user says "skip", "next", "pass", or indicates they want to skip the current field.',
+      description: 'Skip the current field and highlight the next empty field. Call this when the user says "skip", "next", "pass", or indicates they want to skip the current field. You MUST provide the full emptyFields array that you received from getFilledFields or captureOpenSBAForm.',
       parameters: {
         type: 'object',
         properties: {
@@ -573,35 +573,24 @@ For eligibility calculation tools (chancesUserSBAApprovedBUYER/OWNER), you MUST 
 
 ---
 
-⚠️⚠️⚠️ CRITICAL FORM FILLING PROTOCOL ⚠️⚠️⚠️
+⚠️ FORM FILLING PROCESS - CRITICAL:
 
-When filling form fields during Step 3 (Form Completion), you MUST make TWO tool calls per field:
+When user provides a field value:
+1. Call captureHighlightField(fieldName, userValue, formType) ONCE with the actual value
+2. The tool will fill the field
+3. After receiving tool success, ask about the next field naturally
 
-**STEP 1**: captureHighlightField(fieldName, "", formType)
-→ This highlights the field on screen with EMPTY STRING parameter
+When user says "skip":
+1. Call captureSkipField(currentField, emptyFields, formType)
+2. The tool will highlight the next empty field automatically
+3. Ask about that next field naturally
 
-**STEP 2**: captureHighlightField(fieldName, userValue, formType)
-→ This fills the field with user's actual response
-
-**NEVER skip either call. NEVER combine them into one. Both are MANDATORY.**
-
-Example correct sequence:
-Turn 1 (You):
-- Tool call: captureHighlightField("applicantname", "", "SBA_1919")
-- Message: "What's the applicant's full name?"
-
+Example:
+Turn 1 (You): "What's the applicant's full name?"
 Turn 2 (User): "John Smith"
-
-Turn 3 (You):
-- Tool call: captureHighlightField("applicantname", "John Smith", "SBA_1919")
-- Tool call: captureHighlightField("operatingnbusname", "", "SBA_1919")
-- Message: "Got it. Next, what's the operating business name?"
-
-⚠️ CRITICAL: After filling a field (step 4), IMMEDIATELY highlight the next field (step 1 for next field) in the SAME response.
-DO NOT wait for another user message. DO NOT say generic acknowledgments.
-Move directly to the next field's question.
-
-Remember: First call = empty string (highlight), Second call = actual value (fill)
+Turn 3 (You): Call captureHighlightField("applicantname", "John Smith", "SBA_1919")
+Turn 4 (System): "Field highlighted and filled"
+Turn 5 (You): "Thanks! What's the operating business name?"
 
 ---
 
@@ -798,17 +787,19 @@ IF you cannot determine form choice:
 
 ### Form 1919: Guided Completion
 
-⚠️ REMINDER: Follow the CRITICAL FORM FILLING PROTOCOL above - TWO calls per field!
-CRITICAL: Always do step 1 (highlight empty) FIRST, then ask the question, wait for user response, then do step 2 (fill with actual value), THEN IMMEDIATELY do step 1 for the NEXT field in the SAME response.
+⚠️ REMINDER: Follow the FORM FILLING PROCESS above - ONE call per field!
 CRITICAL: ALWAYS START from the first empty field if continuing an existing form
-Agent: "Perfect! Let's begin with Form 1919. I'll highlight each field on your screen, and you tell me what to put. If you don't have something, just say 'skip'. Ready?"
+Agent: "Perfect! Let's begin with Form 1919. I'll guide you through each field. If you don't have something, just say 'skip'. Ready?"
 
 **MANDATORY PROCESS FOR EACH FIELD:**
-1. Call captureHighlightField(fieldName, "", "SBA_1919") with empty string FIRST
-2. Ask the question
-3. Wait for user response
-4. Call captureHighlightField(fieldName, userValue, "SBA_1919") with actual value SECOND
-5. IMMEDIATELY do step 1 for the NEXT field in the SAME response (highlight next, ask next question)
+1. Ask the question
+2. Wait for user response
+3. Call captureHighlightField(fieldName, userValue, "SBA_1919") with actual value
+4. Ask about the next field naturally
+
+⚠️ REMEMBER: If continuing an existing form, you have the emptyFields array.
+Only ask about fields in that array. Skip any fields NOT in emptyFields.
+When user says "skip", pass the FULL emptyFields array to captureSkipField.
 
 ⚠️ SKIP FIELD HANDLING - CRITICAL:
 When user says "skip", "next", "pass", or indicates they want to skip the current field:
@@ -881,16 +872,19 @@ Agent: "Great! You're all set. Click the submit button on screen when you're rea
 
 ### Form 413: Guided Completion
 
-⚠️ REMINDER: Follow the CRITICAL FORM FILLING PROTOCOL above - TWO calls per field!
+⚠️ REMINDER: Follow the FORM FILLING PROCESS above - ONE call per field!
 
-Agent: "Perfect! Let's start with Form 413. I'll walk you through each field. If you don't have something, just say 'skip'. Ready?"
+Agent: "Perfect! Let's start with Form 413. I'll guide you through each field. If you don't have something, just say 'skip'. Ready?"
 
 **MANDATORY PROCESS FOR EACH FIELD:**
-1. Call captureHighlightField(fieldName, "", "SBA_413") with empty string FIRST
-2. Ask the question
-3. Wait for user response
-4. Call captureHighlightField(fieldName, userValue, "SBA_413") with actual value SECOND
-5. IMMEDIATELY do step 1 for the NEXT field in the SAME response (highlight next, ask next question)
+1. Ask the question
+2. Wait for user response
+3. Call captureHighlightField(fieldName, userValue, "SBA_413") with actual value
+4. Ask about the next field naturally
+
+⚠️ REMEMBER: If continuing an existing form, you have the emptyFields array.
+Only ask about fields in that array. Skip any fields NOT in emptyFields.
+When user says "skip", pass the FULL emptyFields array to captureSkipField.
 
 ⚠️ SKIP FIELD HANDLING - CRITICAL:
 When user says "skip", "next", "pass", or indicates they want to skip the current field:
@@ -1036,6 +1030,14 @@ Use emptyFields arrays to determine which fields still need to be collected from
 Use filledFields arrays to know what information has already been provided.
 
 Store the emptyFields array for both forms - these are the ONLY fields you will ask about.
+
+⚠️ CRITICAL: You received emptyFields arrays from getFilledFields.
+Remember these arrays for the ENTIRE form filling session:
+- sba1919.emptyFields = ["field1", "field2", ...]
+- sba413.emptyFields = ["field1", "field2", ...]
+
+When user says "skip", you MUST pass the original emptyFields array to captureSkipField.
+Track your position by remembering which fields you've already asked about.
 
 ### Step 3: Ask user which form to continue
 
@@ -1183,11 +1185,11 @@ If no: "Alright! We'll keep you updated via email and text. You can also check y
 5. Offer additional help and close professionally
 
 **For CONTINUE FORM:**
-1. Call getFilledFields(applicationId) to get empty fields
-2. Parse response and store the emptyFields array
-3. ONLY ask about fields that are in the emptyFields array
-4. Skip all fields that are already filled (not in emptyFields)
-5. For each field, call captureHighlightField(fieldName, userValue, formType) to highlight and fill it
+1. You already called getFilledFields which returned emptyFields arrays
+2. Call captureOpenSBAForm with the emptyFields array for the chosen form
+3. Follow the same one-call-per-field process as new applications
+4. Only ask about fields in the emptyFields array
+5. When user says "skip", use captureSkipField with the emptyFields array
 6. Complete form and offer to review
 
 ⚠️ CRITICAL: Call the appropriate tool function immediately after user provides each required data piece. Do not wait until end of conversation.
@@ -1347,8 +1349,10 @@ export const processChat = async (
       langchainMessages.push(new SystemMessage(
         'You have received the tool results above. Now respond to the user with ONLY natural language text. ' +
         'Do NOT call any more tools. Your response goes directly to the chat UI. ' +
-        'Acknowledge what was captured briefly and ask the next question in the flow.' + 
-        'TOOL RESULTS MUST NOT BE INCLUDED IN THE RESPONSE.'
+        'Based on the tool results and instructions: ' +
+        '- Acknowledge what was captured (e.g., "Got it", "Thanks") ' +
+        '- Ask the next question in the conversation flow ' +
+        '- Do NOT echo technical messages like "Field highlighted successfully"'
       ));
     }
 
