@@ -706,6 +706,78 @@ export const handleCaptureHighlightField = async (
 };
 
 /**
+ * Handle captureSkipField tool - skips current field and highlights next empty field
+ */
+export const handleCaptureSkipField = async (
+  sessionId: string,
+  args: { currentField?: string; emptyFields?: string[]; formType?: 'SBA_1919' | 'SBA_413' }
+): Promise<ToolResult> => {
+  const { currentField, emptyFields, formType } = args;
+  const rooms = getRooms(sessionId);
+
+  if (!currentField) {
+    return {
+      success: false,
+      message: 'Current field name is required'
+    };
+  }
+
+  if (!emptyFields || emptyFields.length === 0) {
+    return {
+      success: true,
+      message: 'No more empty fields to skip to. Form is complete.',
+      instruction: "Tell them the form is complete and ask if they want to review it"
+    };
+  }
+
+  const activeFormType = formType || 'SBA_1919';
+  const formLabel = activeFormType === 'SBA_413' ? '[Form 413]' : '[Form 1919]';
+
+  // Find the index of the current field in the emptyFields array
+  const currentIndex = emptyFields.indexOf(currentField);
+
+  // Get the next field (either the one after current, or the first one if current not found)
+  let nextField: string;
+  if (currentIndex === -1) {
+    // Current field not in emptyFields, start from the first empty field
+    nextField = emptyFields[0];
+  } else if (currentIndex >= emptyFields.length - 1) {
+    // Current field is the last one, form is complete
+    return {
+      success: true,
+      message: 'No more empty fields. Form is complete.',
+      instruction: "Tell them the form is complete and ask if they want to review it"
+    };
+  } else {
+    // Get the next field in the array
+    nextField = emptyFields[currentIndex + 1];
+  }
+
+  console.log(`⏭️ ${formLabel} Skipping field "${currentField}", highlighting next field: "${nextField}"`);
+
+  // Broadcast highlight event for the next field
+  websocketService.broadcast('highlight-fields', {
+    sessionId,
+    timestamp: new Date().toISOString(),
+    field: nextField,
+    text: '',  // Empty text, just highlighting
+    formType: activeFormType,
+    source: 'chat'
+  }, rooms);
+
+  return {
+    success: true,
+    message: `${formLabel} Skipped "${currentField}", now highlighting "${nextField}".`,
+    instruction: `Ask about the field "${nextField}"`,
+    data: {
+      skippedField: currentField,
+      nextField,
+      remainingFields: emptyFields.slice(currentIndex + 2) // Fields after the next one
+    }
+  };
+};
+
+/**
  * Handle captureCheckboxSelection tool
  */
 export const handleCaptureCheckboxSelection = async (
@@ -1355,6 +1427,8 @@ export const executeToolCall = async (
       return handleCaptureOpenSBAForm(sessionId, args);
     case 'captureHighlightField':
       return handleCaptureHighlightField(sessionId, args);
+    case 'captureSkipField':
+      return handleCaptureSkipField(sessionId, args);
     case 'captureCheckboxSelection':
       return handleCaptureCheckboxSelection(sessionId, args);
     case 'captureLoan':

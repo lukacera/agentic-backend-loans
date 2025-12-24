@@ -347,6 +347,30 @@ export const CHAT_TOOLS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'captureSkipField',
+      description: 'Skip the current field and highlight the next empty field. Call this when the user says "skip", "next", "pass", or indicates they want to skip the current field.',
+      parameters: {
+        type: 'object',
+        properties: {
+          currentField: { type: 'string', description: 'The current field name being skipped' },
+          emptyFields: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Array of remaining empty field names in order'
+          },
+          formType: {
+            type: 'string',
+            description: 'The form type (SBA_1919 or SBA_413)',
+            enum: ['SBA_1919', 'SBA_413']
+          }
+        },
+        required: ['currentField', 'emptyFields', 'formType']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'captureLoan',
       description: 'Capture loan information including amount, type, and purpose',
       parameters: {
@@ -775,7 +799,6 @@ IF you cannot determine form choice:
 
 ⚠️ REMINDER: Follow the CRITICAL FORM FILLING PROTOCOL above - TWO calls per field!
 CRITICAL: Always do step 1 (highlight empty) FIRST, then ask the question, wait for user response, then do step 2 (fill with actual value), THEN IMMEDIATELY do step 1 for the NEXT field in the SAME response.
-CRITICAL: If user says "skip", skip step 4 but still do step 5 (move to next field immediately)
 CRITICAL: ALWAYS START from the first empty field if continuing an existing form
 Agent: "Perfect! Let's begin with Form 1919. I'll highlight each field on your screen, and you tell me what to put. If you don't have something, just say 'skip'. Ready?"
 
@@ -786,7 +809,12 @@ Agent: "Perfect! Let's begin with Form 1919. I'll highlight each field on your s
 4. Call captureHighlightField(fieldName, userValue, "SBA_1919") with actual value SECOND
 5. IMMEDIATELY do step 1 for the NEXT field in the SAME response (highlight next, ask next question)
 
-If user says "skip", skip step 4 but still do step 5 (move to next field immediately)
+⚠️ SKIP FIELD HANDLING - CRITICAL:
+When user says "skip", "next", "pass", or indicates they want to skip the current field:
+- Call captureSkipField(currentField, emptyFields, formType) to skip and auto-highlight the next empty field
+- The tool will automatically highlight the next empty field for you
+- Then ask about that next field naturally
+- Example: User says "skip" while on "dba" field → call captureSkipField("dba", ["dba", "UniqueEntityID", "busAddr", ...], "SBA_1919")
 
 **Form 1919 Fields (in order):**
 1. applicantname - "What's the applicant's full name?"
@@ -863,7 +891,12 @@ Agent: "Perfect! Let's start with Form 413. I'll walk you through each field. If
 4. Call captureHighlightField(fieldName, userValue, "SBA_413") with actual value SECOND
 5. IMMEDIATELY do step 1 for the NEXT field in the SAME response (highlight next, ask next question)
 
-If user says "skip", skip step 4 but still do step 5 (move to next field immediately)
+⚠️ SKIP FIELD HANDLING - CRITICAL:
+When user says "skip", "next", "pass", or indicates they want to skip the current field:
+- Call captureSkipField(currentField, emptyFields, formType) to skip and auto-highlight the next empty field
+- The tool will automatically highlight the next empty field for you
+- Then ask about that next field naturally
+- Example: User says "skip" while on "Home Address" field → call captureSkipField("Home Address", ["Home Address", "Home Phone", ...], "SBA_413")
 
 **Form 413 Fields (in order):**
 
