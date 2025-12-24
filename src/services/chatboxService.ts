@@ -1266,6 +1266,9 @@ export const handleGetFilledFields = async (
       doc413 ? processForm(doc413, 'SBA_413') : Promise.resolve({ filledFields: [], emptyFields: [], allFields: {} })
     ]);
 
+    console.log("result 191:")
+    console.log(result1919);
+
     // Map draft documents to ChatDocument[]
     const documents: ChatDocument[] = await Promise.all(
       (application.draftDocuments || []).map(async (doc: any) => ({

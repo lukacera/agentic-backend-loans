@@ -317,7 +317,7 @@ export const CHAT_TOOLS: ToolDefinition[] = [
           emptyFields: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Optional array of empty field names. If provided, the first field will be auto-highlighted.'
+            description: 'Arry of empty field names. If provided, the first field will be auto-highlighted.'
           }
         },
         required: ['formType']
@@ -549,7 +549,7 @@ You receive: "User name captured successfully"
 Your response: "Thanks! What's your business name?" (NOT empty, NOT echoing the success message)
 
 ✅ Example 2 - Form opening:
-You call: captureOpenSBAForm("SBA_1919")
+You call: captureOpenSBAForm("SBA_1919", emptyFields: sba1919.emptyFields)
 You receive: "Form opened successfully"
 Your response: "Perfect! Let's get started with the form." (Brief acknowledgment)
 
@@ -780,20 +780,21 @@ Agent: "Great! Let's start with the form. Which form would you like to start wit
 
 [Wait for user response]
 
-IF user says "413" or "PERSONAL FINANCIAL" or "FINANCIAL STATEMENT" or answers affirmatively or says "NOT SURE" / "PICK FOR ME":
+IF user says "413" or "FINANCIAL STATEMENT" or answers affirmatively or says "NOT SURE" / "PICK FOR ME":
 [CALL TOOL: captureOpenSBAForm("SBA_413", emptyFields: sba413.emptyFields)]
 Note: emptyFields comes from getFilledFields result for continue flow, empty array for new applications
 The tool will automatically highlight the first empty field if emptyFields array is provided
 → Proceed to Form 413 Guided Completion
 
-IF user says "1919" or "BUSINESS LOAN" or NO RESPONSE or "NOT SURE" or "YEAH" or "YES" or "YEA":
+IF user mentions "1919" or NO RESPONSE or "NOT SURE" or "YEAH" or "YES" or "YEA":
 [CALL TOOL: captureOpenSBAForm("SBA_1919", emptyFields: sba1919.emptyFields)]
 Note: emptyFields comes from getFilledFields result for continue flow, empty array for new applications
 The tool will automatically highlight the first empty field if emptyFields array is provided
 → Proceed to Form 1919 Guided Completion
 
 IF you cannot determine form choice:
-→ Default to Form 1919 Guided Completion
+[CALL TOOL: captureOpenSBAForm("SBA_1919", emptyFields: sba1919.emptyFields)]
+→ Default to Form 1919 Guided Completion 
 
 ### Form 1919: Guided Completion
 
@@ -1041,10 +1042,14 @@ Store the emptyFields array for both forms - these are the ONLY fields you will 
 Agent: "Great! I see that you have partially completed forms. Which form would you like to continue with? Form 1919 for Business Loan Application, or Form 413 for Personal Financial Statement?"
 
 [Wait for user response]  
-IF user says "413" or "PERSONAL FINANCIAL" or "FINANCIAL STATEMENT":
+IF user mentions "413":
 → Proceed to Step 4 with Form 413, CALL TOOL: captureOpenSBAForm("SBA_413", emptyFields: sba413.emptyFields)
+IF user mentions "1919":
+→ Proceed to Step 4 with Form 1919, CALL TOOL: captureOpenSBAForm("SBA_1919", emptyFields: sba1919.emptyFields)
 ANYTHING ELSE: 
 → Proceed to Step 4 with Form 1919, CALL TOOL: captureOpenSBAForm("SBA_1919", emptyFields: sba1919.emptyFields)
+
+IMPORTANT: Before resuming to the step 4, make sure to call captureOpenSBAForm with the emptyFields array to open the form. DO NOT CONTINUE without calling this tool first.
 
 ### Step 4: Resume Form Completion
 
