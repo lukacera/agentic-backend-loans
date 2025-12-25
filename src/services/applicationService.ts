@@ -21,6 +21,7 @@ import {
 } from './s3Service.js';
 import { recommendBank } from './bankService.js';
 import { PDFDocument } from 'pdf-lib';
+import { createEmptyFieldsObject } from './formFields.js';
 
 // SBA Eligibility Calculator Interfaces
 interface SBAEligibilityRequestBuyer {
@@ -106,6 +107,8 @@ export const createDraft = async (
       documentsGenerated: false,
       emailSent: false,
       generatedDocuments: [],
+      sba1919Fields: createEmptyFieldsObject('SBA_1919'),
+      sba413Fields: createEmptyFieldsObject('SBA_413'),
       ...(loanChances && {
         loanChances: {
           ...loanChances,
@@ -179,7 +182,9 @@ export const createApplication = async (
       status: ApplicationStatus.SUBMITTED,
       documentsGenerated: false,
       emailSent: false,
-      generatedDocuments: []
+      generatedDocuments: [],
+      sba1919Fields: createEmptyFieldsObject('SBA_1919'),
+      sba413Fields: createEmptyFieldsObject('SBA_413')
     });
 
     await application.save();

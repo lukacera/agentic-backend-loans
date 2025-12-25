@@ -330,11 +330,157 @@ export interface BankSubmission {
   submittedAt: Date;
 }
 
+// SBA Form field interfaces (must match formFields.ts and Application.ts schemas)
+export interface Sba1919Fields {
+  // Basic Business Information (Required)
+  applicantname?: string;
+  operatingnbusname?: string;
+  busTIN?: string;
+  busphone?: string;
+  busAddr?: string;
+
+  // Basic Business Information (Optional)
+  yearbeginoperations?: string;
+  OC?: string;
+  EPC?: string;
+  dba?: string;
+  PrimarIndustry?: string;
+  UniqueEntityID?: string;
+  projAddr?: string;
+  pocName?: string;
+  pocEmail?: string;
+
+  // Entity Type Checkboxes
+  soleprop?: boolean;
+  partnership?: boolean;
+  ccorp?: boolean;
+  scorp?: boolean;
+  llc?: boolean;
+  etother?: boolean;
+  entityother?: string;
+
+  // Special Ownership Type Checkboxes
+  ownESOP?: boolean;
+  own401k?: boolean;
+  ownCooperative?: boolean;
+  ownNATribe?: boolean;
+  ownOther?: boolean;
+  specOwnTypeOther?: string;
+
+  // Employment & Financial Info
+  existEmp?: string;
+  fteJobs?: string;
+  debtAmt?: string;
+  purchConstr?: string;
+  purchAmt?: string;
+
+  // Owner 1
+  ownName1?: string;
+  ownTitle1?: string;
+  ownPerc1?: string;
+  ownTin1?: string;
+  ownHome1?: string;
+
+  // Owner 2
+  ownName2?: string;
+  ownTitle2?: string;
+  ownPerc2?: string;
+  ownTin2?: string;
+  ownHome2?: string;
+
+  // Owner 3
+  ownName3?: string;
+  ownTitle3?: string;
+  ownPerc3?: string;
+  ownTin3?: string;
+  ownHome3?: string;
+
+  // Owner 4
+  ownName4?: string;
+  ownTitle4?: string;
+  ownPerc4?: string;
+  ownTin4?: string;
+  ownHome4?: string;
+
+  // Owner 5
+  ownName5?: string;
+  ownTitle5?: string;
+  ownPerc5?: string;
+  ownTin5?: string;
+  ownHome5?: string;
+  ownPos?: string;
+
+  // Veteran Status Checkboxes
+  statNonVet?: boolean;
+  statVet?: boolean;
+  statVetD?: boolean;
+  statVetSp?: boolean;
+  statND?: boolean;
+
+  // Gender Checkboxes
+  male?: boolean;
+  female?: boolean;
+
+  // Race Checkboxes
+  raceAIAN?: boolean;
+  raceAsian?: boolean;
+  raceBAA?: boolean;
+  raceNHPI?: boolean;
+  raceWhite?: boolean;
+  raceND?: boolean;
+
+  // Ethnicity Checkboxes
+  ethHisp?: boolean;
+  ethNot?: boolean;
+  ethND?: boolean;
+
+  // Questions (Yes/No Checkboxes)
+  q1Yes?: boolean;
+  q1No?: boolean;
+  q2Yes?: boolean;
+  q2No?: boolean;
+  q3Yes?: boolean;
+  q3No?: boolean;
+  q4Yes?: boolean;
+  q4No?: boolean;
+  q5Yes?: boolean;
+  q5No?: boolean;
+  q6Yes?: boolean;
+  q6No?: boolean;
+  q7Yes?: boolean;
+  q7No?: boolean;
+  q8Yes?: boolean;
+  q8No?: boolean;
+  q9Yes?: boolean;
+  q9No?: boolean;
+  q10Yes?: boolean;
+  q10No?: boolean;
+
+  // Purpose/Use of Proceeds
+  EquipAmt?: string;
+  purpEquip?: string;
+  workCap?: string;
+  busAcq?: string;
+  purpOther1?: string;
+  purpOther2?: string;
+  purpInv?: string;
+  debtRef?: string;
+}
+
+export interface Sba413Fields {
+  applicantName?: string;
+  businessName?: string;
+}
+
 export interface SBAApplication extends Document {
   applicantData: SBAApplicationData;
   status: ApplicationStatus;
   documentsGenerated: boolean;
   generatedDocuments: string[];
+
+  // SBA Form field storage for server-side state management
+  sba1919Fields?: Sba1919Fields;
+  sba413Fields?: Sba413Fields;
 
   // Loan Chances
   loanChances?: StoredLoanChances;
@@ -690,3 +836,42 @@ export interface ChatDocument {
 // ==============================
 
 export type ConversationFlow = 'continue_application' | 'new_application' | 'check_status' | null;
+
+// ==============================
+// FORM STATE TYPES
+// ==============================
+
+export type FormType = 'SBA_1919' | 'SBA_413';
+
+export interface FormStateEntry {
+  filledFields: string[];
+  emptyFields: string[];
+  missingRequired: string[];
+  isSubmittable: boolean;
+  allFields: Record<string, string | boolean>;
+  currentFieldIndex: number;
+}
+
+export interface FormState {
+  applicationId: string;
+  currentForm: FormType | null;
+  sba1919: FormStateEntry;
+  sba413: FormStateEntry;
+  dirty: boolean;
+  lastSaved: Date | null;
+}
+
+export interface UpdateFieldResult {
+  success: boolean;
+  nextField: string | null;
+  isSubmittable: boolean;
+  message?: string;
+}
+
+export interface SkipFieldResult {
+  success: boolean;
+  skippedField: string;
+  nextField: string | null;
+  wasRequired: boolean;
+  message?: string;
+}

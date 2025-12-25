@@ -10,7 +10,8 @@ import {
   getSession,
   addMessage,
   deleteSession,
-  executeToolCall
+  executeToolCall,
+  formStateService
 } from '../services/chatboxService.js';
 import { ChatMessage, ConversationFlow } from '../types/index.js';
 
@@ -88,12 +89,28 @@ router.get('/sessions/:sessionId', async (req, res) => {
 router.delete('/sessions/:sessionId', async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const deleted = await deleteSession(sessionId);
 
-    if (!deleted) {
+    // Get session to find applicationId before deleting
+    const session = await getSession(sessionId);
+    if (!session) {
       return res.status(404).json({
         success: false,
         error: 'Session not found'
+      });
+    }
+
+    // End form state session if active (saves and removes from memory)
+    const applicationId = session.applicationId?.toString();
+    if (applicationId && formStateService.hasSession(applicationId)) {
+      console.log(`🔚 Ending form state session for application: ${applicationId}`);
+      await formStateService.endSession(applicationId);
+    }
+
+    const deleted = await deleteSession(sessionId);
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        error: 'Failed to delete session'
       });
     }
 
@@ -120,7 +137,7 @@ router.delete('/sessions/:sessionId', async (req, res) => {
 router.post('/sessions/:sessionId/messages', async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const { message } = req.body;
+    const { message, applicationId: requestApplicationId } = req.body;
 
     // Validate message
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
@@ -139,20 +156,36 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
       });
     }
 
+    // Get applicationId from request body or session
+    const applicationId = requestApplicationId || session.applicationId?.toString();
+
+    // If we have an applicationId, ensure form state session is started
+    if (applicationId && !formStateService.hasSession(applicationId)) {
+      console.log(`📋 Starting form state session for application: ${applicationId}`);
+      await formStateService.startSession(applicationId);
+    }
+
+    // Get form state context for LLM injection (if we have an active form session)
+    let formStateContext: string | undefined;
+    if (applicationId && formStateService.hasSession(applicationId)) {
+      formStateContext = formStateService.getStateContext(applicationId);
+    }
+    
     // Add user message to history
     const userMessage: ChatMessage = {
       role: 'user',
       content: message.trim(),
       timestamp: new Date()
     };
-    await addMessage(sessionId, userMessage);
-
-    // ========== FIRST PASS: Get tool calls from LLM ==========
-    console.log(`📤 First pass: Processing user message`);
+    const updatedConvoWithNewMessage = await addMessage(sessionId, userMessage);
+    
     const firstResult = await processChat(
       chatboxAgent,
-      session.messages,
-      message.trim()
+      updatedConvoWithNewMessage?.messages || [],
+      message.trim(),
+      undefined,
+      undefined,
+      formStateContext  // Inject form state context
     );
 
     if (!firstResult.success || !firstResult.data) {
@@ -169,6 +202,9 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
     const toolResults: { name: string; success: boolean; message: string; instruction?: string; data?: any }[] = [];
     const toolResultsForLLM: ToolResultForLLM[] = [];
 
+    // Track if an application was selected (for starting form state session)
+    let newApplicationId: string | undefined;
+
     if (toolCalls && toolCalls.length > 0) {
       console.log(`🔧 Executing ${toolCalls.length} tool calls`);
 
@@ -176,7 +212,8 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
         const toolResult = await executeToolCall(
           sessionId,
           toolCall.name,
-          toolCall.args || {}
+          toolCall.args || {},
+          applicationId  // Pass applicationId for form state operations
         );
 
         // Store for API response
@@ -191,6 +228,43 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
           name: toolCall.name,
           result: JSON.stringify(toolResult)
         });
+
+        // Check if this was an eligibility calculation that created a draft application
+        if ((toolCall.name === 'chancesUserSBAApprovedBUYER' || toolCall.name === 'chancesUserSBAApprovedOWNER') &&
+            toolResult.success && toolResult.data?.draftApplicationId) {
+          const draftAppId = toolResult.data.draftApplicationId as string;
+          newApplicationId = draftAppId;
+          // Start form state session for the new application
+          console.log(`📋 Starting form state session for new application: ${draftAppId}`);
+          await formStateService.startSession(draftAppId);
+          // Persist applicationId to MongoDB so it survives between requests
+          session.applicationId = draftAppId;
+          await session.save();
+          console.log(`💾 Saved applicationId to chat session: ${draftAppId}`);
+        }
+
+        // Check if getFilledFields was called (for continue flow)
+        if (toolCall.name === 'getFilledFields' && toolResult.success) {
+          // The applicationId is in the args
+          const filledFieldsAppId = toolCall.args?.applicationId as string | undefined;
+          if (filledFieldsAppId) {
+            if (!formStateService.hasSession(filledFieldsAppId)) {
+              console.log(`📋 Starting form state session for selected application: ${filledFieldsAppId}`);
+              await formStateService.startSession(filledFieldsAppId);
+            }
+            newApplicationId = filledFieldsAppId;
+            // Persist applicationId to MongoDB so it survives between requests
+            session.applicationId = filledFieldsAppId;
+            await session.save();
+            console.log(`💾 Saved applicationId to chat session: ${filledFieldsAppId}`);
+          }
+        }
+      }
+
+      // Get updated form state context after tool execution
+      const activeAppId = newApplicationId || applicationId;
+      if (activeAppId && formStateService.hasSession(activeAppId)) {
+        formStateContext = formStateService.getStateContext(activeAppId);
       }
 
       const secondResult = await processChat(
@@ -198,7 +272,8 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
         session.messages,
         message.trim(),
         toolResultsForLLM,
-        toolCalls
+        toolCalls,
+        formStateContext  // Inject updated form state context
       );
 
       if (secondResult.success && secondResult.data?.content) {
@@ -244,6 +319,12 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
     const applicationsResult = toolResults.find(r => r.name === 'retrieveAllApplications');
     const applications = applicationsResult?.data?.applications;
 
+    // Periodic save: save form state after each message (if dirty)
+    const activeAppId = newApplicationId || applicationId;
+    if (activeAppId && formStateService.hasSession(activeAppId)) {
+      await formStateService.saveSession(activeAppId);
+    }
+
     res.json({
       success: true,
       data: {
@@ -251,7 +332,8 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
         toolResults: toolResults.length > 0 ? toolResults : undefined,
         userData: updatedSession?.userData,
         flow: detectedFlow,
-        applications: applications || undefined
+        applications: applications || undefined,
+        applicationId: newApplicationId || applicationId  // Return current applicationId
       }
     });
   } catch (error) {

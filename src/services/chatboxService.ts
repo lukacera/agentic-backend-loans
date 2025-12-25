@@ -17,6 +17,8 @@ import {
   generateDraftPDFs
 } from './applicationService.js';
 import { downloadDocument, generatePresignedUrl } from './s3Service.js';
+import formStateService from './FormStateService.js';
+import { getFieldLabel } from './formFields.js';
 
 /**
  * Create a new chat session
@@ -615,45 +617,47 @@ export const handleCaptureIfSellerFinancingOnStandbyExists = async (
  */
 export const handleCaptureOpenSBAForm = async (
   sessionId: string,
-  args: { formType?: string; emptyFields?: string[] }
+  args: { formType?: string }
 ): Promise<ToolResult> => {
-  const { formType, emptyFields } = args;
+  const { formType } = args;
   const rooms = getRooms(sessionId);
-
   await updateUserData(sessionId, { formType });
 
-  // Broadcast form open event with emptyFields
+  const activeFormType = (formType as 'SBA_1919' | 'SBA_413') || 'SBA_1919';
+
+  // Set current form in FormStateService and get next field
+  formStateService.setCurrentForm(sessionId, activeFormType);
+  const nextField = formStateService.getNextField(sessionId, activeFormType);
+
+  // Broadcast form open event
   websocketService.broadcast('open-sba-form', {
     sessionId,
     timestamp: new Date().toISOString(),
     fields: { formType },
-    emptyFields: emptyFields || [],
+    nextField: nextField || null,
     source: 'chat'
   }, rooms);
 
-  // Auto-highlight first empty field if emptyFields provided
+  // Auto-highlight first empty field if available
   // Add a small delay to ensure the form is rendered before highlighting
-  if (emptyFields && emptyFields.length > 0) {
-    const firstEmptyField = emptyFields[0];
-    const activeFormType = (formType as 'SBA_1919' | 'SBA_413') || 'SBA_1919';
-    const formLabel = activeFormType === 'SBA_413' ? '[Form 413]' : '[Form 1919]';
+  if (nextField) {
     // Delay highlighting by 3 seconds to allow form to render
     setTimeout(() => {
       websocketService.broadcast('highlight-fields', {
         sessionId,
         timestamp: new Date().toISOString(),
-        field: firstEmptyField,
+        field: nextField,
         text: '',  // Empty text, just highlighting
         formType: activeFormType,
         source: 'chat'
       }, rooms);
-
     }, 3000);
 
+    const fieldLabel = getFieldLabel(activeFormType, nextField);
     return {
       success: true,
-      message: `Form ${formType} opened with ${emptyFields.length} empty fields. Starting with "${firstEmptyField}".`,
-      instruction: `Tell them you're opening ${formType} and starting with the first field: "${firstEmptyField}". Ask about that field.`
+      message: `Form ${formType} opened. Starting with field: "${nextField}" (${fieldLabel}).`,
+      instruction: `Tell them you're opening ${formType} and starting with the first field: "${fieldLabel}". Ask about that field.`
     };
   }
 
@@ -666,10 +670,12 @@ export const handleCaptureOpenSBAForm = async (
 
 /**
  * Handle captureHighlightField tool
+ * Now integrates with FormStateService for automatic next field tracking
  */
 export const handleCaptureHighlightField = async (
   sessionId: string,
-  args: { field?: string; text?: string; formType?: 'SBA_1919' | 'SBA_413' }
+  args: { field?: string; text?: string; formType?: 'SBA_1919' | 'SBA_413' },
+  applicationId?: string
 ): Promise<ToolResult> => {
   const { field, text, formType } = args;
   const rooms = getRooms(sessionId);
@@ -684,6 +690,16 @@ export const handleCaptureHighlightField = async (
   const activeFormType = formType || 'SBA_1919';
   const formLabel = activeFormType === 'SBA_413' ? '[Form 413]' : '[Form 1919]';
 
+  // If text is provided and we have an applicationId, update the form state
+  let nextField: string | null = null;
+  let isSubmittable = false;
+
+  if (text && applicationId && formStateService.hasSession(applicationId)) {
+    const result = formStateService.updateField(applicationId, activeFormType, field, text);
+    nextField = result.nextField;
+    isSubmittable = result.isSubmittable;
+  }
+
   websocketService.broadcast('highlight-fields', {
     sessionId,
     timestamp: new Date().toISOString(),
@@ -693,89 +709,101 @@ export const handleCaptureHighlightField = async (
     source: 'chat'
   }, rooms);
 
+  // Build instruction based on whether there's a next field
+  let instruction: string;
+  if (text) {
+    if (nextField) {
+      instruction = `Acknowledge the value was captured. The next field is "${nextField}" (${getFieldLabel(activeFormType, nextField)}). Ask about it.`;
+    } else if (isSubmittable) {
+      instruction = `Acknowledge the value was captured. All required fields are complete! Ask if they want to review the form or continue to the next form.`;
+    } else {
+      instruction = `Acknowledge the value was captured. Form is complete but may be missing some optional fields.`;
+    }
+  } else {
+    instruction = `Ask the user for this field's value`;
+  }
+
   return {
     success: true,
     message: `${formLabel} Field "${field}" ${text ? 'filled with value and ' : ''}highlighted.`,
-    instruction: text
-      ? `Acknowledge the value was captured and ask about the next field in the form sequence`
-      : `Ask the user for this field's value`,
+    instruction,
     data: {
       field,
       text,
-      formType,
-      filled: !!text  // Boolean indicating if field was filled or just highlighted
+      formType: activeFormType,
+      filled: !!text,
+      nextField,
+      isSubmittable
     }
   };
 };
 
 /**
  * Handle captureSkipField tool - skips current field and highlights next empty field
+ * Now uses FormStateService for automatic state tracking (no emptyFields param needed)
  */
 export const handleCaptureSkipField = async (
   sessionId: string,
-  args: { currentField?: string; emptyFields?: string[]; formType?: 'SBA_1919' | 'SBA_413' }
+  args: { formType?: 'SBA_1919' | 'SBA_413' },
+  applicationId?: string
 ): Promise<ToolResult> => {
-  const { currentField, emptyFields, formType } = args;
+  const { formType } = args;
   const rooms = getRooms(sessionId);
-
-  if (!currentField) {
-    return {
-      success: false,
-      message: 'Current field name is required'
-    };
-  }
-
-  if (!emptyFields || emptyFields.length === 0) {
-    return {
-      success: true,
-      message: 'No more empty fields to skip to. Form is complete.',
-      instruction: "Tell them the form is complete and ask if they want to review it"
-    };
-  }
-
   const activeFormType = formType || 'SBA_1919';
   const formLabel = activeFormType === 'SBA_413' ? '[Form 413]' : '[Form 1919]';
 
-  // Find the index of the current field in the emptyFields array
-  const currentIndex = emptyFields.indexOf(currentField);
+  // Use FormStateService if we have an active session
+  if (applicationId && formStateService.hasSession(applicationId)) {
+    const result = formStateService.skipField(applicationId, activeFormType);
 
-  // Get the next field (either the one after current, or the first one if current not found)
-  let nextField: string;
-  if (currentIndex === -1) {
-    // Current field not in emptyFields, start from the first empty field
-    nextField = emptyFields[0];
-  } else if (currentIndex >= emptyFields.length - 1) {
-    // Current field is the last one, form is complete
+    if (!result.success) {
+      return {
+        success: false,
+        message: result.message || 'Failed to skip field'
+      };
+    }
+
+    if (!result.nextField) {
+      return {
+        success: true,
+        message: 'No more empty fields. Form is complete.',
+        instruction: "Tell them the form is complete and ask if they want to review it"
+      };
+    }
+
+    // Broadcast highlight event for the next field
+    websocketService.broadcast('highlight-fields', {
+      sessionId,
+      timestamp: new Date().toISOString(),
+      field: result.nextField,
+      text: '',
+      formType: activeFormType,
+      source: 'chat'
+    }, rooms);
+
+    const nextFieldLabel = getFieldLabel(activeFormType, result.nextField);
+    let instruction = `The next empty field is "${result.nextField}" (${nextFieldLabel}). Ask the user about this field.`;
+    if (result.wasRequired) {
+      instruction = `Note: "${result.skippedField}" was a required field. ` + instruction;
+    }
+
     return {
       success: true,
-      message: 'No more empty fields. Form is complete.',
-      instruction: "Tell them the form is complete and ask if they want to review it"
+      message: `${formLabel} Skipped "${result.skippedField}", now highlighting "${result.nextField}".`,
+      instruction,
+      data: {
+        skippedField: result.skippedField,
+        nextField: result.nextField,
+        wasRequired: result.wasRequired
+      }
     };
-  } else {
-    // Get the next field in the array
-    nextField = emptyFields[currentIndex + 1];
   }
 
-
-  // Broadcast highlight event for the next field
-  websocketService.broadcast('highlight-fields', {
-    sessionId,
-    timestamp: new Date().toISOString(),
-    field: nextField,
-    text: '',  // Empty text, just highlighting
-    formType: activeFormType,
-    source: 'chat'
-  }, rooms);
-
+  // Fallback: no active form state session
   return {
-    success: true,
-    message: `${formLabel} Skipped "${currentField}", now highlighting "${nextField}".`,
-    instruction: `The next empty field is "${nextField}". Ask the user about this field.`,
-    data: {
-      skippedField: currentField,
-      nextField,
-      remainingFields: emptyFields.slice(currentIndex + 2) // Fields after the next one
-    }
+    success: false,
+    message: 'No active form state session. Please select an application first.',
+    instruction: "Ask the user to select an application to continue"
   };
 };
 
@@ -1240,26 +1268,25 @@ export const handleGetFilledFields = async (
       };
     }
 
-    const doc1919 = application.draftDocuments?.find((d: any) => d.fileType === 'SBA_1919');
-    const doc413 = application.draftDocuments?.find((d: any) => d.fileType === 'SBA_413');
+    // Start or get existing FormStateService session (loads from MongoDB)
+    let state = formStateService.getState(applicationId);
+    if (!state) {
+      console.log('📋 Starting FormStateService session for getFilledFields');
+      state = await formStateService.startSession(applicationId);
+    }
 
-    // Helper function to process a single form
-    const processForm = async (document: any, formType: 'SBA_1919' | 'SBA_413') => {
-      try {
-        const pdfBuffer = await downloadDocument(document.s3Key);
-        const result = await extractFormFieldValues(pdfBuffer);
-        return result;
-      } catch (error) {
-        console.warn(`⚠️ Could not process ${formType}:`, error);
-        return { filledFields: [], emptyFields: [], allFields: {} };
-      }
+    // Extract field state from FormStateService
+    const result1919 = {
+      filledFields: state.sba1919.filledFields,
+      emptyFields: state.sba1919.emptyFields,
+      allFields: state.sba1919.allFields
     };
 
-    // Process both forms in parallel
-    const [result1919, result413] = await Promise.all([
-      doc1919 ? processForm(doc1919, 'SBA_1919') : Promise.resolve({ filledFields: [], emptyFields: [], allFields: {} }),
-      doc413 ? processForm(doc413, 'SBA_413') : Promise.resolve({ filledFields: [], emptyFields: [], allFields: {} })
-    ]);
+    const result413 = {
+      filledFields: state.sba413.filledFields,
+      emptyFields: state.sba413.emptyFields,
+      allFields: state.sba413.allFields
+    };
 
     // Map draft documents to ChatDocument[]
     const documents: ChatDocument[] = await Promise.all(
@@ -1269,6 +1296,10 @@ export const handleGetFilledFields = async (
         url: await generatePresignedUrl(doc.s3Key, 3600)
       }))
     );
+
+    console.log(`✅ Retrieved field state from FormStateService for ${applicationId}`);
+    console.log(`   SBA 1919: ${result1919.filledFields.length} filled, ${result1919.emptyFields.length} empty`);
+    console.log(`   SBA 413: ${result413.filledFields.length} filled, ${result413.emptyFields.length} empty`);
 
     return {
       success: true,
@@ -1364,17 +1395,58 @@ export const handleEndConversation = async (
   };
 };
 
-// ==============================
-// TOOL DISPATCHER
-// ==============================
+/**
+ * Handle checkSubmissionReadiness tool
+ * Returns which forms are ready for submission and what's missing
+ */
+export const handleCheckSubmissionReadiness = async (
+  sessionId: string,
+  args: {},
+  applicationId?: string
+): Promise<ToolResult> => {
+  if (!applicationId || !formStateService.hasSession(applicationId)) {
+    return {
+      success: false,
+      message: 'No active form state session. Please select an application first.'
+    };
+  }
+
+  const readiness = formStateService.checkSubmissionReadiness(applicationId);
+
+  let instruction: string;
+  if (readiness.allReady) {
+    instruction = "Tell them both forms are complete and ready for submission! Ask if they want to submit now.";
+  } else {
+    const missing: string[] = [];
+    if (!readiness.sba1919.ready) {
+      missing.push(`Form 1919 needs: ${readiness.sba1919.missing.join(', ')}`);
+    }
+    if (!readiness.sba413.ready) {
+      missing.push(`Form 413 needs: ${readiness.sba413.missing.join(', ')}`);
+    }
+    instruction = `Tell them which forms are incomplete and what's missing. Missing: ${missing.join('; ')}`;
+  }
+
+  return {
+    success: true,
+    message: `Form 1919: ${readiness.sba1919.ready ? 'READY' : 'NOT READY'}. Form 413: ${readiness.sba413.ready ? 'READY' : 'NOT READY'}.`,
+    instruction,
+    data: readiness
+  };
+};
 
 /**
  * Execute a tool call by name
+ * @param sessionId - The chat session ID
+ * @param toolName - The name of the tool to execute
+ * @param args - Tool arguments
+ * @param applicationId - Optional application ID for form state tracking
  */
 export const executeToolCall = async (
   sessionId: string,
   toolName: string,
-  args: Record<string, any>
+  args: Record<string, any>,
+  applicationId?: string
 ): Promise<ToolResult> => {
   switch (toolName) {
     case 'captureUserName':
@@ -1418,9 +1490,9 @@ export const executeToolCall = async (
     case 'captureOpenSBAForm':
       return handleCaptureOpenSBAForm(sessionId, args);
     case 'captureHighlightField':
-      return handleCaptureHighlightField(sessionId, args);
+      return handleCaptureHighlightField(sessionId, args, applicationId);
     case 'captureSkipField':
-      return handleCaptureSkipField(sessionId, args);
+      return handleCaptureSkipField(sessionId, args, applicationId);
     case 'captureCheckboxSelection':
       return handleCaptureCheckboxSelection(sessionId, args);
     case 'captureLoan':
@@ -1437,6 +1509,8 @@ export const executeToolCall = async (
       return handleGetFilledFields(sessionId, args);
     case 'retrieveAllApplications':
       return handleRetrieveAllApplications(sessionId, args);
+    case 'checkSubmissionReadiness':
+      return handleCheckSubmissionReadiness(sessionId, args, applicationId);
     case 'endConversation':
       return handleEndConversation(sessionId, args);
     default:
@@ -1447,6 +1521,9 @@ export const executeToolCall = async (
       };
   }
 };
+
+// Re-export formStateService for convenience
+export { default as formStateService } from './FormStateService.js';
 
 export default {
   // Session management

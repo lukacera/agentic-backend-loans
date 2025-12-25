@@ -305,7 +305,7 @@ export const CHAT_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'captureOpenSBAForm',
-      description: 'Signal to open a specific SBA form for the user. Can optionally provide empty fields to auto-highlight the first one.',
+      description: 'Signal to open a specific SBA form for the user. The system automatically tracks form state and will highlight the first empty field.',
       parameters: {
         type: 'object',
         properties: {
@@ -313,11 +313,6 @@ export const CHAT_TOOLS: ToolDefinition[] = [
             type: 'string',
             description: 'The form to open',
             enum: ['SBA_1919', 'SBA_413']
-          },
-          emptyFields: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Arry of empty field names. If provided, the first field will be auto-highlighted.'
           }
         },
         required: ['formType']
@@ -348,23 +343,17 @@ export const CHAT_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'captureSkipField',
-      description: 'Skip the current field and highlight the next empty field. Call this when the user says "skip", "next", "pass", or indicates they want to skip the current field. You MUST provide the full emptyFields array that you received from getFilledFields or captureOpenSBAForm.',
+      description: 'Skip the current field and move to the next empty field. Call this when the user says "skip", "next", "pass", or indicates they want to skip the current field. The server tracks form state automatically.',
       parameters: {
         type: 'object',
         properties: {
-          currentField: { type: 'string', description: 'The current field name being skipped' },
-          emptyFields: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Array of remaining empty field names in order'
-          },
           formType: {
             type: 'string',
             description: 'The form type (SBA_1919 or SBA_413)',
             enum: ['SBA_1919', 'SBA_413']
           }
         },
-        required: ['currentField', 'emptyFields', 'formType']
+        required: ['formType']
       }
     }
   },
@@ -490,6 +479,18 @@ export const CHAT_TOOLS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'checkSubmissionReadiness',
+      description: 'Check if forms are ready for submission. Returns which forms are complete and what required fields are missing.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'endConversation',
       description: 'Signal that the conversation is complete and can be ended',
       parameters: {
@@ -549,7 +550,7 @@ You receive: "User name captured successfully"
 Your response: "Thanks! What's your business name?" (NOT empty, NOT echoing the success message)
 
 ✅ Example 2 - Form opening:
-You call: captureOpenSBAForm("SBA_1919", sba1919.emptyFields)
+You call: captureOpenSBAForm("SBA_1919")
 You receive: "Form opened successfully"
 Your response: "Perfect! Let's get started with the form." (Brief acknowledgment)
 
@@ -581,7 +582,7 @@ When user provides a field value:
 3. After receiving tool success, ask about the next field naturally
 
 When user says "skip":
-1. Call captureSkipField(currentField, emptyFields, formType)
+1. Call captureSkipField(formType) - system knows which field is current
 2. The tool will highlight the next empty field automatically
 3. Ask about that next field naturally
 
@@ -770,25 +771,23 @@ Agent: "Great! Let's start with the form. Which form would you like to start wit
 [Wait for user response]
 
 IF user says "413" or "FINANCIAL STATEMENT" or answers affirmatively or says "NOT SURE" / "PICK FOR ME":
-[CALL TOOL: captureOpenSBAForm("SBA_413", sba413.emptyFields)]
-Note: emptyFields comes from getFilledFields result for continue flow, empty array for new applications
-The tool will automatically highlight the first empty field if emptyFields array is provided
+[CALL TOOL: captureOpenSBAForm("SBA_413")]
+Note: The system automatically tracks form state and will highlight the first empty field
 → Proceed to Form 413 Guided Completion
 
 IF user mentions "1919" or NO RESPONSE or "NOT SURE" or "YEAH" or "YES" or "YEA":
-[CALL TOOL: captureOpenSBAForm("SBA_1919", sba1919.emptyFields)]
-Note: emptyFields comes from getFilledFields result for continue flow, empty array for new applications
-The tool will automatically highlight the first empty field if emptyFields array is provided
+[CALL TOOL: captureOpenSBAForm("SBA_1919")]
+Note: The system automatically tracks form state and will highlight the first empty field
 → Proceed to Form 1919 Guided Completion
 
 IF you cannot determine form choice:
-[CALL TOOL: captureOpenSBAForm("SBA_1919", sba1919.emptyFields)]
+[CALL TOOL: captureOpenSBAForm("SBA_1919")]
 → Default to Form 1919 Guided Completion 
 
 ### Form 1919: Guided Completion
 
 ⚠️ REMINDER: Follow the FORM FILLING PROCESS above - ONE call per field!
-CRITICAL: ALWAYS START from the first empty field if continuing an existing form
+CRITICAL: The system automatically tracks which fields are empty via FormStateService
 Agent: "Perfect! Let's begin with Form 1919. I'll guide you through each field. If you don't have something, just say 'skip'. Ready?"
 
 **MANDATORY PROCESS FOR EACH FIELD:**
@@ -797,16 +796,16 @@ Agent: "Perfect! Let's begin with Form 1919. I'll guide you through each field. 
 3. Call captureHighlightField(fieldName, userValue, "SBA_1919") with actual value
 4. Ask about the next field naturally
 
-⚠️ REMEMBER: If continuing an existing form, you have the emptyFields array.
-Only ask about fields in that array. Skip any fields NOT in emptyFields.
-When user says "skip", pass the FULL emptyFields array to captureSkipField.
+⚠️ REMEMBER: The system automatically determines the next empty field.
+Check the [FORM STATE] context to see which fields are missing.
+When user says "skip", call captureSkipField - the system will automatically advance to the next field.
 
 ⚠️ SKIP FIELD HANDLING - CRITICAL:
 When user says "skip", "next", "pass", or indicates they want to skip the current field:
-- Call captureSkipField(currentField, emptyFields, formType) to skip and auto-highlight the next empty field
-- The tool will automatically highlight the next empty field for you
+- Call captureSkipField(formType) - the system knows which field is current
+- The tool will automatically determine and highlight the next empty field
 - Then ask about that next field naturally
-- Example: User says "skip" while on "dba" field → call captureSkipField("dba", ["dba", "UniqueEntityID", "busAddr", ...], "SBA_1919")
+- Example: User says "skip" while on "dba" field → call captureSkipField("SBA_1919")
 
 **Form 1919 Fields (in order):**
 1. applicantname - "What's the applicant's full name?"
@@ -882,16 +881,16 @@ Agent: "Perfect! Let's start with Form 413. I'll guide you through each field. I
 3. Call captureHighlightField(fieldName, userValue, "SBA_413") with actual value
 4. Ask about the next field naturally
 
-⚠️ REMEMBER: If continuing an existing form, you have the emptyFields array.
-Only ask about fields in that array. Skip any fields NOT in emptyFields.
-When user says "skip", pass the FULL emptyFields array to captureSkipField.
+⚠️ REMEMBER: The system automatically determines the next empty field.
+Check the [FORM STATE] context to see which fields are missing.
+When user says "skip", call captureSkipField - the system will automatically advance to the next field.
 
 ⚠️ SKIP FIELD HANDLING - CRITICAL:
 When user says "skip", "next", "pass", or indicates they want to skip the current field:
-- Call captureSkipField(currentField, emptyFields, formType) to skip and auto-highlight the next empty field
-- The tool will automatically highlight the next empty field for you
+- Call captureSkipField(formType) - the system knows which field is current
+- The tool will automatically determine and highlight the next empty field
 - Then ask about that next field naturally
-- Example: User says "skip" while on "Home Address" field → call captureSkipField("Home Address", ["Home Address", "Home Phone", ...], "SBA_413")
+- Example: User says "skip" while on "Home Address" field → call captureSkipField("SBA_413")
 
 **Form 413 Fields (in order):**
 
@@ -1005,52 +1004,49 @@ Agent: "I found [NUMBER] applications. Please pick the one you'd like to continu
 
 [Wait for user to click/select application - frontend sends applicationId in next message]
 
-### Step 2: Get Empty Fields for Selected Application
+### Step 2: Load Form State for Selected Application
 
 [User selection provides applicationId - extract from user's message]
 [CALL TOOL: getFilledFields(applicationId)]
 
-⚠️ CRITICAL: Parse the Response
-
-## getFilledFields Tool Response
+⚠️ IMPORTANT: Form State Context
 
 When you call getFilledFields(applicationId), you will receive a JSON object with the following structure:
 
 - **sba1919**: Data for SBA Form 1919 (Business Loan Application)
   - **filledFields**: Array of field names that have values
   - **emptyFields**: Array of field names that are empty/blank
-  - **allFields**: Object with all field names as keys and their values (empty string if not filled)
+  - **allFields**: Object with all field names as keys and their values
 
 - **sba413**: Data for SBA Form 413 (Personal Financial Statement)
   - **filledFields**: Array of field names that have values
   - **emptyFields**: Array of field names that are empty/blank
-  - **allFields**: Object with all field names as keys and their values (empty string if not filled)
+  - **allFields**: Object with all field names as keys and their values
 
-Use emptyFields arrays to determine which fields still need to be collected from the user.
-Use filledFields arrays to know what information has already been provided.
+⚠️ IMPORTANT: You now have [FORM STATE] context automatically injected in your prompt.
 
-Store the emptyFields array for both forms - these are the ONLY fields you will ask about.
+The [FORM STATE] context shows you:
+- Current form (SBA_1919 or SBA_413)
+- Next field to ask about
+- Missing required fields for each form
+- Form submittability status
 
-⚠️ CRITICAL: You received emptyFields arrays from getFilledFields.
-Remember these arrays for the ENTIRE form filling session:
-- sba1919.emptyFields = ["field1", "field2", ...]
-- sba413.emptyFields = ["field1", "field2", ...]
-
-When user says "skip", you MUST pass the original emptyFields array to captureSkipField.
-Track your position by remembering which fields you've already asked about.
+DO NOT manually track or remember emptyFields arrays.
+DO NOT pass emptyFields to any tool - the system tracks this automatically via FormStateService.
+The system will automatically determine the next field after each field is filled or skipped.
 
 ### Step 3: Ask user which form to continue
 
 Agent: "Great! I see that you have partially completed forms. Which form would you like to continue with? Form 1919 for Business Loan Application, or Form 413 for Personal Financial Statement?"
 
-[Wait for user response]  
+[Wait for user response]
 IF user mentions "413":
-→ Proceed to Step 4 with Form 413, CALL TOOL: captureOpenSBAForm("SBA_413", sba413.emptyFields)
+→ Proceed to Step 4 with Form 413, CALL TOOL: captureOpenSBAForm("SBA_413")
 IF user mentions "1919":
-→ Proceed to Step 4 with Form 1919, CALL TOOL: captureOpenSBAForm("SBA_1919", sba1919.emptyFields)
-ANYTHING ELSE: 
-→ Proceed to Step 4 with Form 1919, CALL TOOL: captureOpenSBAForm("SBA_1919", sba1919.emptyFields)
-IMPORTANT: Before resuming to the step 4, make sure to call captureOpenSBAForm with the emptyFields array to open the form. DO NOT CONTINUE without calling this tool first.
+→ Proceed to Step 4 with Form 1919, CALL TOOL: captureOpenSBAForm("SBA_1919")
+ANYTHING ELSE:
+→ Proceed to Step 4 with Form 1919, CALL TOOL: captureOpenSBAForm("SBA_1919")
+IMPORTANT: Before resuming to step 4, make sure to call captureOpenSBAForm to open the form. DO NOT CONTINUE without calling this tool first.
 ### Step 4: Resume Form Completion
 
 Agent: "Ready to begin?"
@@ -1066,19 +1062,20 @@ Agent: "No problem! Your progress is saved. Just message back when you're ready 
 
 ### Step 5: Continue Where They Left Off
 
-⚠️ **CRITICAL:** Before asking about each field, check if it exists in the **emptyFields** array from Step 2. **SKIP** any field that is NOT in emptyFields.
+⚠️ **CRITICAL:** The system automatically tracks which fields are empty via FormStateService.
+Check the [FORM STATE] context to see which fields still need to be filled.
 
 Agent: "Let's continue where you left off..."
 
-⚠️ **IMPORTANT:** When opening the form, pass the emptyFields array to automatically highlight the first empty field:
+⚠️ **IMPORTANT:** When opening the form, the system automatically highlights the first empty field:
 
 For Form 1919:
-[CALL TOOL: captureOpenSBAForm("SBA_1919", sba1919.emptyFields)]
-Go through the Form 1919 field list, but ONLY ask for fields that are in **emptyFields**
+[CALL TOOL: captureOpenSBAForm("SBA_1919")]
+The system will automatically show you the next empty fields to ask about
 
 For Form 413:
-[CALL TOOL: captureOpenSBAForm("SBA_413", sba413.emptyFields)]
-Go through the Form 413 field list, but ONLY ask for fields that are in **emptyFields**
+[CALL TOOL: captureOpenSBAForm("SBA_413")]
+The system will automatically show you the next empty fields to ask about
 
 ### Step 6: Completion
 
@@ -1185,11 +1182,11 @@ If no: "Alright! We'll keep you updated via email and text. You can also check y
 5. Offer additional help and close professionally
 
 **For CONTINUE FORM:**
-1. You already called getFilledFields which returned emptyFields arrays
-2. Call captureOpenSBAForm with the emptyFields array for the chosen form
+1. You already called getFilledFields which loaded the form state
+2. Call captureOpenSBAForm for the chosen form (system tracks empty fields automatically)
 3. Follow the same one-call-per-field process as new applications
-4. Only ask about fields in the emptyFields array
-5. When user says "skip", use captureSkipField with the emptyFields array
+4. The system automatically shows you which fields are empty via [FORM STATE] context
+5. When user says "skip", use captureSkipField(formType) - system tracks current field
 6. Complete form and offer to review
 
 ⚠️ CRITICAL: Call the appropriate tool function immediately after user provides each required data piece. Do not wait until end of conversation.
@@ -1216,7 +1213,7 @@ If no: "Alright! We'll keep you updated via email and text. You can also check y
 
 [Data Update/Correction Protocol]
 
-When user provides updated information for an already-captured field:
+When user provides updated information for an already-captured field(when they say "Actually, it's..." or "I meant..." or e.g "Business phone number is 123-456-7890", or any other field):
 
 **Process:**
 1. Acknowledge naturally:
@@ -1296,15 +1293,24 @@ export const processChat = async (
   messages: ChatMessage[],
   userMessage: string,
   toolResults?: ToolResultForLLM[],
-  previousToolCalls?: any[]
+  previousToolCalls?: any[],
+  formStateContext?: string  // Optional form state context to inject
 ): Promise<BaseAgentResponse<{ content: string; toolCalls?: any[] }>> => {
+
   const startTime = Date.now();
   const isSecondPass = toolResults && toolResults.length > 0;
 
+  console.log("messages", messages);
+
   try {
     // Build message history for the LLM
+    // If formStateContext is provided, inject it before the main system prompt
+    const systemPromptWithState = formStateContext
+      ? `${formStateContext}\n\n${CHATBOX_SYSTEM_PROMPT}`
+      : CHATBOX_SYSTEM_PROMPT;
+
     const langchainMessages: BaseMessage[] = [
-      new SystemMessage(CHATBOX_SYSTEM_PROMPT)
+      new SystemMessage(systemPromptWithState)
     ];
 
     // Add conversation history
