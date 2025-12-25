@@ -595,6 +595,29 @@ Turn 5 (You): "Thanks! What's the operating business name?"
 
 ---
 
+🚨 CRITICAL: BEFORE RESPONDING, REVIEW THE LAST 3 MESSAGES 🚨
+
+Before generating any response, you MUST:
+1. Look at YOUR last message (what question did you ask?)
+2. Look at the USER's response (what data did they provide?)
+3. Determine which field the user is answering based on your question
+
+Then call the appropriate tool to capture that data BEFORE responding.
+
+Example:
+- Your last message: "What type of business entity do you have?"
+- User's response: "C Corp"
+- Action: Call captureCheckboxSelection("entity", "C-Corp", "SBA_1919") because user answered YOUR entity question
+
+Example:
+- Your last message: "What year did the business begin operations?"
+- User's response: "2011"
+- Action: Call captureHighlightField("yearbeginoperations", "2011", "SBA_1919") because user answered YOUR year question
+
+DO NOT just respond with text. The user's response is an ANSWER to YOUR QUESTION - capture it!
+
+---
+
 INITIAL ROUTING - CRITICAL FIRST STEPS
 DO NOT continue until you have this information.
 Agent: "Are you looking to explore loan options for your business, check on an existing application, or continue filling out your forms?"
@@ -1299,8 +1322,6 @@ export const processChat = async (
 
   const startTime = Date.now();
   const isSecondPass = toolResults && toolResults.length > 0;
-
-  console.log("messages", messages);
 
   try {
     // Build message history for the LLM

@@ -11,7 +11,8 @@ import {
   addMessage,
   deleteSession,
   executeToolCall,
-  formStateService
+  formStateService,
+  getFlowContext
 } from '../services/chatboxService.js';
 import { ChatMessage, ConversationFlow } from '../types/index.js';
 
@@ -170,7 +171,16 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
     if (applicationId && formStateService.hasSession(applicationId)) {
       formStateContext = formStateService.getStateContext(applicationId);
     }
-    
+
+    // Get flow context to remind LLM which flow it's in
+    const flowContext = getFlowContext(session.userData);
+
+    // Combine contexts (flow context first, then form state)
+    let combinedContext: string | undefined;
+    if (flowContext || formStateContext) {
+      combinedContext = [flowContext, formStateContext].filter(Boolean).join('\n\n');
+    }
+
     // Add user message to history
     const userMessage: ChatMessage = {
       role: 'user',
@@ -185,7 +195,7 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
       message.trim(),
       undefined,
       undefined,
-      formStateContext  // Inject form state context
+      combinedContext  // Inject flow + form state context
     );
 
     if (!firstResult.success || !firstResult.data) {
@@ -263,8 +273,19 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
 
       // Get updated form state context after tool execution
       const activeAppId = newApplicationId || applicationId;
+      let updatedFormStateContext: string | undefined;
       if (activeAppId && formStateService.hasSession(activeAppId)) {
-        formStateContext = formStateService.getStateContext(activeAppId);
+        updatedFormStateContext = formStateService.getStateContext(activeAppId);
+      }
+
+      // Get updated flow context (in case detectConversationFlow was just called)
+      const updatedSession = await getSession(sessionId);
+      const updatedFlowContext = getFlowContext(updatedSession?.userData);
+
+      // Combine updated contexts
+      let updatedCombinedContext: string | undefined;
+      if (updatedFlowContext || updatedFormStateContext) {
+        updatedCombinedContext = [updatedFlowContext, updatedFormStateContext].filter(Boolean).join('\n\n');
       }
 
       const secondResult = await processChat(
@@ -273,7 +294,7 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
         message.trim(),
         toolResultsForLLM,
         toolCalls,
-        formStateContext  // Inject updated form state context
+        updatedCombinedContext  // Inject updated combined context
       );
 
       if (secondResult.success && secondResult.data?.content) {

@@ -119,6 +119,25 @@ interface ToolResult {
 const getRooms = (sessionId: string): string[] => ['global', sessionId];
 
 /**
+ * Generate flow context string for LLM injection
+ * This reminds the LLM which conversation flow it's in to prevent random flow switches
+ */
+export const getFlowContext = (userData: Record<string, any> | undefined): string => {
+  const flow = userData?.currentFlow;
+  if (!flow) return '';
+
+  const flowDescriptions: Record<string, string> = {
+    'new_application': 'NEW APPLICATION - Collecting eligibility data, then filling SBA forms',
+    'continue_application': 'CONTINUE APPLICATION - Filling out SBA form fields for an existing application',
+    'check_status': 'CHECK STATUS - Answering questions about application status'
+  };
+
+  return `[CURRENT FLOW: ${flowDescriptions[flow] || flow}]
+⚠️ STAY IN THIS FLOW. Do NOT switch to asking new application questions.
+Do NOT call detectConversationFlow again unless user explicitly requests a different action.`;
+};
+
+/**
  * Handle captureUserName tool
  */
 export const handleCaptureUserName = async (
@@ -910,7 +929,7 @@ export const handleCaptureLoan = async (
 
 /**
  * Handle conversation flow detection
- * No MongoDB update needed - just return the flow value
+ * Persists flow to MongoDB so LLM can be reminded of current flow
  */
 export const handleDetectConversationFlow = async (
   sessionId: string,
@@ -927,7 +946,9 @@ export const handleDetectConversationFlow = async (
     };
   }
 
-  // No MongoDB update needed - just return the flow
+  // Persist flow to MongoDB so it survives between messages
+  await updateUserData(sessionId, { currentFlow: flow });
+
   return {
     success: true,
     message: `Flow detected: ${flow}`,
