@@ -330,7 +330,7 @@ export const handleCaptureUSCitizen = async (
 ): Promise<ToolResult> => {
   const { usCitizen } = args;
   const rooms = getRooms(sessionId);
-
+  console.log(`🛂 Captured US citizenship status: ${usCitizen}`);
   await updateUserData(sessionId, { usCitizen });
 
   websocketService.broadcast('form-field-update', {
