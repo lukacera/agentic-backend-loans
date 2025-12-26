@@ -18,6 +18,16 @@ import {
   isFieldRequired,
   getFieldLabel
 } from './formFields.js';
+import { getFieldMapping, getEntityTypeMapping } from './fieldMapping.js';
+
+// ==============================
+// TYPES FOR PROGRESS
+// ==============================
+
+export interface FormProgress {
+  SBA_1919: number;
+  SBA_413: number;
+}
 
 // ==============================
 // TYPES
@@ -56,6 +66,11 @@ export interface SkipFieldResult {
   nextField: string | null;
   wasRequired: boolean;
   message?: string;
+}
+
+export interface CrossFormUpdateResult {
+  SBA_1919: UpdateFieldResult | null;
+  SBA_413: UpdateFieldResult | null;
 }
 
 // ==============================
@@ -368,14 +383,31 @@ export const saveSession = async (applicationId: string): Promise<boolean> => {
   }
 
   try {
-    await Application.findByIdAndUpdate(applicationId, {
-      sba1919Fields: state.sba1919.allFields,
-      sba413Fields: state.sba413.allFields
-    });
+    // Build $set object with dot notation for individual field updates
+    const updateFields: Record<string, any> = {};
+
+    // Add SBA 1919 fields with dot notation
+    for (const [fieldName, fieldValue] of Object.entries(state.sba1919.allFields)) {
+      updateFields[`sba1919Fields.${fieldName}`] = fieldValue;
+    }
+
+    // Add SBA 413 fields with dot notation
+    for (const [fieldName, fieldValue] of Object.entries(state.sba413.allFields)) {
+      updateFields[`sba413Fields.${fieldName}`] = fieldValue;
+    }
+
+    console.log(`💾 Updating ${Object.keys(updateFields).length} fields for ${applicationId}`);
+
+    // Update with $set operator for atomic field-level updates
+    await Application.findByIdAndUpdate(
+      applicationId,
+      { $set: updateFields },
+      { new: true, strict: false } // Return updated doc, disable strict mode for nested fields
+    );
 
     state.dirty = false;
     state.lastSaved = new Date();
-    console.log(`💾 Saved form state for ${applicationId}`);
+    console.log(`✅ Saved form state for ${applicationId} (${Object.keys(updateFields).length} fields)`);
     return true;
   } catch (error) {
     console.error(`❌ Failed to save form state for ${applicationId}:`, error);
@@ -474,6 +506,82 @@ export const clearAllSessions = (): void => {
   console.log('🧹 Cleared all form state sessions');
 };
 
+/**
+ * Calculate form completion progress percentage
+ * Returns percentage (0-100) for each form based on filled fields
+ */
+export const calculateProgress = (applicationId: string): FormProgress | null => {
+  const state = stateStore.get(applicationId);
+  if (!state) return null;
+
+  const totalFields1919 = SBA_1919_FIELD_NAMES.length;
+  const totalFields413 = SBA_413_FIELD_NAMES.length;
+
+  return {
+    SBA_1919: Math.round((state.sba1919.filledFields.length / totalFields1919) * 100),
+    SBA_413: Math.round((state.sba413.filledFields.length / totalFields413) * 100)
+  };
+};
+
+/**
+ * Update a unified field across both forms
+ * Uses field mapping to determine which fields to update in each form
+ */
+export const updateFieldAcrossForms = (
+  applicationId: string,
+  unifiedFieldName: string,
+  value: string | boolean
+): CrossFormUpdateResult => {
+  const mapping = getFieldMapping(unifiedFieldName);
+
+  if (!mapping) {
+    console.warn(`⚠️ No mapping found for unified field: ${unifiedFieldName}`);
+    return { SBA_1919: null, SBA_413: null };
+  }
+
+  const result: CrossFormUpdateResult = {
+    SBA_1919: null,
+    SBA_413: null
+  };
+
+  if (mapping.SBA_1919) {
+    result.SBA_1919 = updateField(applicationId, 'SBA_1919', mapping.SBA_1919, value);
+    console.log(`📝 Updated SBA_1919.${mapping.SBA_1919} = "${value}"`);
+  }
+
+  if (mapping.SBA_413) {
+    result.SBA_413 = updateField(applicationId, 'SBA_413', mapping.SBA_413, value);
+    console.log(`📝 Updated SBA_413.${mapping.SBA_413} = "${value}"`);
+  }
+
+  return result;
+};
+
+/**
+ * Update entity type checkbox across both forms
+ * Clears other entity checkboxes and sets the selected one
+ */
+export const updateEntityTypeAcrossForms = (
+  applicationId: string,
+  entityType: string
+): CrossFormUpdateResult => {
+  const mapping = getEntityTypeMapping(entityType);
+
+  if (!mapping) {
+    console.warn(`⚠️ No mapping found for entity type: ${entityType}`);
+    return { SBA_1919: null, SBA_413: null };
+  }
+
+  const result: CrossFormUpdateResult = {
+    SBA_1919: updateField(applicationId, 'SBA_1919', mapping.SBA_1919, true),
+    SBA_413: updateField(applicationId, 'SBA_413', mapping.SBA_413, true)
+  };
+
+  console.log(`📝 Updated entity type "${entityType}" in both forms`);
+
+  return result;
+};
+
 // Export as default object for convenience
 export default {
   startSession,
@@ -488,5 +596,8 @@ export default {
   getStateContext,
   checkSubmissionReadiness,
   getActiveSessions,
-  clearAllSessions
+  clearAllSessions,
+  calculateProgress,
+  updateFieldAcrossForms,
+  updateEntityTypeAcrossForms
 };

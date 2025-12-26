@@ -758,6 +758,74 @@ export const handleCaptureHighlightField = async (
 };
 
 /**
+ * Handle captureUnifiedField tool
+ * Captures a value and saves it to corresponding fields in BOTH SBA forms (1919 and 413)
+ * Used for shared data like name, business name, phone, address, SSN
+ */
+export const handleCaptureUnifiedField = async (
+  sessionId: string,
+  args: { unifiedFieldName?: string; value?: string },
+  applicationId?: string
+): Promise<ToolResult> => {
+  const { unifiedFieldName, value } = args;
+
+  if (!unifiedFieldName) {
+    return {
+      success: false,
+      message: 'unifiedFieldName is required'
+    };
+  }
+
+  if (!value) {
+    return {
+      success: false,
+      message: 'value is required'
+    };
+  }
+
+  if (!applicationId) {
+    return {
+      success: false,
+      message: 'No active application. Cannot save unified field.'
+    };
+  }
+
+  // Ensure form state session exists
+  if (!formStateService.hasSession(applicationId)) {
+    await formStateService.startSession(applicationId);
+  }
+
+  // Update both forms via FormStateService
+  const results = formStateService.updateFieldAcrossForms(applicationId, unifiedFieldName, value);
+
+  // Calculate updated progress
+  const formProgress = formStateService.calculateProgress(applicationId);
+
+  // Mark as dirty for periodic save
+  const state = formStateService.getState(applicationId);
+  if (state) {
+    state.dirty = true;
+  }
+
+  console.log(`✅ Unified field "${unifiedFieldName}" saved to both forms`);
+  console.log(`   Progress: SBA_1919=${formProgress?.SBA_1919}%, SBA_413=${formProgress?.SBA_413}%`);
+
+  return {
+    success: true,
+    message: `Saved "${unifiedFieldName}" to both forms.`,
+    instruction: 'Value saved to both forms. Ask the next question.',
+    data: {
+      unified: true,
+      unifiedFieldName,
+      value,
+      formProgress,
+      SBA_1919: results.SBA_1919,
+      SBA_413: results.SBA_413
+    }
+  };
+};
+
+/**
  * Handle captureSkipField tool - skips current field and highlights next empty field
  * Now uses FormStateService for automatic state tracking (no emptyFields param needed)
  */
@@ -1318,9 +1386,13 @@ export const handleGetFilledFields = async (
       }))
     );
 
+    // Calculate form progress percentages
+    const formProgress = formStateService.calculateProgress(applicationId);
+
     console.log(`✅ Retrieved field state from FormStateService for ${applicationId}`);
     console.log(`   SBA 1919: ${result1919.filledFields.length} filled, ${result1919.emptyFields.length} empty`);
     console.log(`   SBA 413: ${result413.filledFields.length} filled, ${result413.emptyFields.length} empty`);
+    console.log(`   Progress: SBA_1919=${formProgress?.SBA_1919}%, SBA_413=${formProgress?.SBA_413}%`);
 
     return {
       success: true,
@@ -1339,7 +1411,8 @@ export const handleGetFilledFields = async (
           allFields: result413.allFields,
           url: application.draftDocuments?.find((doc: any) => doc.fileName.includes('SBA_413'))?.s3Key || null
         },
-        documents
+        documents,
+        formProgress
       }
     };
   } catch (error) {
@@ -1512,6 +1585,8 @@ export const executeToolCall = async (
       return handleCaptureOpenSBAForm(sessionId, args);
     case 'captureHighlightField':
       return handleCaptureHighlightField(sessionId, args, applicationId);
+    case 'captureUnifiedField':
+      return handleCaptureUnifiedField(sessionId, args, applicationId);
     case 'captureSkipField':
       return handleCaptureSkipField(sessionId, args, applicationId);
     case 'captureCheckboxSelection':

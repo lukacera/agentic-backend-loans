@@ -305,7 +305,7 @@ export const CHAT_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'captureOpenSBAForm',
-      description: 'Signal to open a specific SBA form for the user. The system automatically tracks form state and will highlight the first empty field.',
+      description: 'DEPRECATED - Do not use. Both forms are opened automatically. Use captureUnifiedField to fill forms instead.',
       parameters: {
         type: 'object',
         properties: {
@@ -336,6 +336,28 @@ export const CHAT_TOOLS: ToolDefinition[] = [
           }
         },
         required: ['field']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'captureUnifiedField',
+      description: 'Capture a user value and save it to the corresponding fields in BOTH SBA forms (1919 and 413). Use this for shared data that appears on both forms like: applicant name, business name, business phone, business address, home address, SSN, print name, entity type. This updates both forms simultaneously and returns updated progress percentages.',
+      parameters: {
+        type: 'object',
+        properties: {
+          unifiedFieldName: {
+            type: 'string',
+            description: 'The unified field identifier',
+            enum: ['applicantName', 'businessName', 'businessPhone', 'businessAddress', 'homeAddress', 'ownerSSN', 'printName', 'entityType']
+          },
+          value: {
+            type: 'string',
+            description: 'The value provided by the user'
+          }
+        },
+        required: ['unifiedFieldName', 'value']
       }
     }
   },
@@ -541,6 +563,74 @@ After you call tools, you'll receive their execution results in a follow-up mess
 3. **Your response MUST include text** - Tool calls alone without natural language are NOT allowed
 4. **NEVER call more tools after receiving tool results** - When you see ToolMessage results, your ONLY job is to respond with conversational text. You are a chatbox - your response goes directly to the user's chat screen. No more tool calls.
 
+---
+
+🚨 CRITICAL: TOOL SELECTION DECISION TREE 🚨
+
+BEFORE calling ANY tool, follow this decision process:
+
+**Step 1: What field did I ask about in my LAST message?**
+- Review your previous AI message
+- Identify the specific field name (e.g., "busTIN", "applicantName", "dba")
+
+**Step 2: Is this field in the UNIFIED field list?**
+**Unified fields (ONLY these 8):**
+- applicantName
+- businessName
+- businessPhone
+- businessAddress
+- homeAddress
+- ownerSSN
+- printName
+- entityType
+
+**Step 3: Choose the correct tool:**
+
+IF field is one of the 8 unified fields:
+  → CALL: captureUnifiedField(unifiedFieldName, userValue)
+
+ELSE (field is NOT unified):
+  → CALL: captureHighlightField(fieldName, userValue, formType)
+
+**Examples:**
+
+1. **Unified Field (businessName):**
+   You asked: "What's your business name?"
+   User said: "Acme Corp"
+   Field: businessName (IN unified list)
+   Call: captureUnifiedField("businessName", "Acme Corp")
+
+2. **Non-Unified Field (busTIN):**
+   You asked: "What's the business Tax ID or TIN?"
+   User said: "21323"
+   Field: busTIN (NOT in unified list)
+   Call: captureHighlightField("busTIN", "21323", "SBA_1919")
+
+3. **Non-Unified Field (dba):**
+   You asked: "Does the business have a DBA?"
+   User said: "Acme Industries"
+   Field: dba (NOT in unified list)
+   Call: captureHighlightField("dba", "Acme Industries", "SBA_1919")
+
+4. **Non-Unified Field (PrimarIndustry):**
+   You asked: "What's the primary industry?"
+   User said: "Retail"
+   Field: PrimarIndustry (NOT in unified list)
+   Call: captureHighlightField("PrimarIndustry", "Retail", "SBA_1919")
+
+⚠️ **DO NOT:**
+- Call captureBusinessPhone unless you explicitly asked "What's your business phone?"
+- Call captureCreditScore unless you explicitly asked "What's your credit score?"
+- Guess tools based on the VALUE format (numbers, text, etc.)
+- Use dedicated capture tools (captureBusinessName, captureBusinessPhone) for non-phone/non-name fields
+
+⚠️ **ALWAYS:**
+- Look at YOUR last message to determine which field you asked about
+- Match the field name to the correct tool using the decision tree above
+- Use captureHighlightField as the default for ANY field not in the unified list
+
+---
+
 **Examples of what to do:**
 
 ✅ Example 1 - Capture tool:
@@ -577,42 +667,90 @@ For eligibility calculation tools (chancesUserSBAApprovedBUYER/OWNER), you MUST 
 ⚠️ FORM FILLING PROCESS - CRITICAL:
 
 When user provides a field value:
-1. Call captureHighlightField(fieldName, userValue, formType) ONCE with the actual value
-2. The tool will fill the field
-3. After receiving tool success, ask about the next field naturally
+1. Call captureUnifiedField for fields that exist in BOTH forms (applicantName, businessName, businessPhone, businessAddress, homeAddress, ownerSSN, printName, entityType)
+2. Both Form 1919 and Form 413 are updated automatically
+3. After receiving tool success, ask about the next unified field naturally
 
 When user says "skip":
-1. Call captureSkipField(formType) - system knows which field is current
-2. The tool will highlight the next empty field automatically
-3. Ask about that next field naturally
+1. Call captureSkipField() - system will move to next field
+2. Ask about the next field naturally
 
-Example:
-Turn 1 (You): "What's the applicant's full name?"
-Turn 2 (User): "John Smith"
-Turn 3 (You): Call captureHighlightField("applicantname", "John Smith", "SBA_1919")
-Turn 4 (System): "Field highlighted and filled"
-Turn 5 (You): "Thanks! What's the operating business name?"
+⚠️ DO NOT mention "Form 1919" or "Form 413" when asking questions unless clarification is needed. Just ask the question directly: "What's your full name?" not "For Form 1919, what's your full name?"
 
 ---
 
-🚨 CRITICAL: BEFORE RESPONDING, REVIEW THE LAST 3 MESSAGES 🚨
+🚨 CRITICAL: BEFORE TOOL CALLING, REVIEW CONVERSATION CONTEXT 🚨
 
-Before generating any response, you MUST:
-1. Look at YOUR last message (what question did you ask?)
-2. Look at the USER's response (what data did they provide?)
-3. Determine which field the user is answering based on your question
+**THIS IS MANDATORY - FAILURE TO DO THIS CAUSES DATA LOSS**
 
-Then call the appropriate tool to capture that data BEFORE responding.
+Before calling ANY tool, you MUST:
 
-Example:
-- Your last message: "What type of business entity do you have?"
-- User's response: "C Corp"
-- Action: Call captureCheckboxSelection("entity", "C-Corp", "SBA_1919") because user answered YOUR entity question
+**Step 1: Read YOUR last AI message**
+- Scroll up and read the EXACT question you asked
+- Identify the FIELD NAME you were asking about
 
-Example:
-- Your last message: "What year did the business begin operations?"
-- User's response: "2011"
-- Action: Call captureHighlightField("yearbeginoperations", "2011", "SBA_1919") because user answered YOUR year question
+**Step 2: Read the USER's response**
+- What value did they provide?
+
+**Step 3: Match field to tool using DECISION TREE** (see above)
+- IF field is unified (one of the 8) → captureUnifiedField
+- ELSE (field is not unified) → captureHighlightField
+
+**Why this matters:**
+- Calling the wrong tool = DATA IS NOT SAVED
+- Example: Asking about "busTIN" but calling captureBusinessPhone = TIN field stays empty
+- You will have to ask the same question again, frustrating the user
+
+**Common Mistakes to AVOID:**
+
+❌ **WRONG:** User says "21323" → It's numbers → Call captureBusinessPhone
+✅ **RIGHT:** I asked about "busTIN" → NOT unified → Call captureHighlightField("busTIN", "21323")
+
+❌ **WRONG:** User says "Acme Industries" → Sounds like business → Call captureBusinessName
+✅ **RIGHT:** I asked about "dba" → NOT unified → Call captureHighlightField("dba", "Acme Industries")
+
+❌ **WRONG:** User says "Retail" → It's text → Call captureLoanPurpose
+✅ **RIGHT:** I asked about "PrimarIndustry" → NOT unified → Call captureHighlightField("PrimarIndustry", "Retail")
+
+**Decision Flow:**
+
+MY LAST QUESTION: "What's the [FIELD]?"
+USER'S ANSWER: "[VALUE]"
+
+↓
+
+Is [FIELD] one of these 8?
+- applicantName, businessName, businessPhone, businessAddress,
+  homeAddress, ownerSSN, printName, entityType
+
+  YES → captureUnifiedField("[FIELD]", "[VALUE]")
+  NO  → captureHighlightField("[FIELD]", "[VALUE]", "SBA_1919" or "SBA_413")
+
+**Real Examples:**
+
+1. ✅ **Entity Type (Unified Field):**
+   You: "What type of business entity is this?"
+   User: "LLC"
+   Field: entityType (unified)
+   Tool: captureUnifiedField("entityType", "LLC")
+
+2. ✅ **Business TIN (Non-Unified):**
+   You: "What's the business Tax ID or TIN?"
+   User: "21-3456789"
+   Field: busTIN (NOT unified)
+   Tool: captureHighlightField("busTIN", "21-3456789", "SBA_1919")
+
+3. ✅ **DBA (Non-Unified):**
+   You: "Does the business have a DBA or trade name?"
+   User: "Quick Mart"
+   Field: dba (NOT unified)
+   Tool: captureHighlightField("dba", "Quick Mart", "SBA_1919")
+
+4. ✅ **Business Name (Unified):**
+   You: "What's your business name?"
+   User: "Acme Corporation"
+   Field: businessName (unified)
+   Tool: captureUnifiedField("businessName", "Acme Corporation")
 
 DO NOT just respond with text. The user's response is an ANSWER to YOUR QUESTION - capture it!
 
@@ -787,25 +925,21 @@ Agent: "No problem! The form will be saved, and you can complete it anytime. Jus
 [Answer questions or end conversation]
 [CALL TOOL: endConversation]
 
-### Step 3: Form Selection & Guided Completion
+### Step 3: Begin Form Filling
 
-Agent: "Great! Let's start with the form. Which form would you like to start with? Form 1919 for Business Loan Application, or Form 413 for Personal Financial Statement? If you're not sure, we'll start with Form 1919."
+After showing eligibility results, immediately proceed to form filling without asking which form:
 
-[Wait for user response]
+Agent: "Perfect! Your application forms are ready. I'll ask you some questions to fill them out. Both Form 1919 (Business Loan Application) and Form 413 (Personal Financial Statement) will be updated as we go through this process."
 
-IF user says "413" or "FINANCIAL STATEMENT" or answers affirmatively or says "NOT SURE" / "PICK FOR ME":
-[CALL TOOL: captureOpenSBAForm("SBA_413")]
-Note: The system automatically tracks form state and will highlight the first empty field
-→ Proceed to Form 413 Guided Completion
+[DO NOT ask which form to start with - proceed directly to unified field questions]
 
-IF user mentions "1919" or NO RESPONSE or "NOT SURE" or "YEAH" or "YES" or "YEA":
-[CALL TOOL: captureOpenSBAForm("SBA_1919")]
-Note: The system automatically tracks form state and will highlight the first empty field
-→ Proceed to Form 1919 Guided Completion
+Start asking unified field questions immediately:
+1. "What's your full name?" → captureUnifiedField("applicantName", value)
+2. "What's your business name?" → captureUnifiedField("businessName", value)
+3. "What's your business phone number?" → captureUnifiedField("businessPhone", value)
+4. Continue through all unified fields...
 
-IF you cannot determine form choice:
-[CALL TOOL: captureOpenSBAForm("SBA_1919")]
-→ Default to Form 1919 Guided Completion 
+⚠️ CRITICAL: Both forms are filled simultaneously via unified fields. Do NOT ask the user to choose between Form 1919 and Form 413. 
 
 ### Form 1919: Guided Completion
 
@@ -814,10 +948,15 @@ CRITICAL: The system automatically tracks which fields are empty via FormStateSe
 Agent: "Perfect! Let's begin with Form 1919. I'll guide you through each field. If you don't have something, just say 'skip'. Ready?"
 
 **MANDATORY PROCESS FOR EACH FIELD:**
-1. Ask the question
+1. Ask the question (without mentioning form number)
 2. Wait for user response
-3. Call captureHighlightField(fieldName, userValue, "SBA_1919") with actual value
-4. Ask about the next field naturally
+3. Call captureUnifiedField for unified fields (applicantName, businessName, businessPhone, businessAddress, homeAddress, ownerSSN, printName, entityType)
+4. Both forms update automatically
+5. Ask about the next field naturally
+
+⚠️ Example:
+- GOOD: "What's your business name?"
+- BAD: "For Form 1919, what's your business name?"
 
 ⚠️ REMEMBER: The system automatically determines the next empty field.
 Check the [FORM STATE] context to see which fields are missing.
@@ -899,10 +1038,15 @@ Agent: "Great! You're all set. Click the submit button on screen when you're rea
 Agent: "Perfect! Let's start with Form 413. I'll guide you through each field. If you don't have something, just say 'skip'. Ready?"
 
 **MANDATORY PROCESS FOR EACH FIELD:**
-1. Ask the question
+1. Ask the question (without mentioning form number)
 2. Wait for user response
-3. Call captureHighlightField(fieldName, userValue, "SBA_413") with actual value
-4. Ask about the next field naturally
+3. Call captureUnifiedField for unified fields (applicantName, businessName, businessPhone, businessAddress, homeAddress, ownerSSN, printName, entityType)
+4. Both forms update automatically
+5. Ask about the next field naturally
+
+⚠️ Example:
+- GOOD: "What's your business name?"
+- BAD: "For Form 1919, what's your business name?"
 
 ⚠️ REMEMBER: The system automatically determines the next empty field.
 Check the [FORM STATE] context to see which fields are missing.
@@ -995,15 +1139,17 @@ ELSE:
 Agent: "Great! You're all set. Click the submit button on screen when you're ready."
 [CALL TOOL: endConversation]
 
-### Form Switching (Available Anytime During Form Filling)
+### Form Progress Inquiry (Available Anytime During Form Filling)
 
-At any point during form filling, if user says:
-- "Switch to Form 413" / "I want Form 413" / "Change to Form 413"
-- "Switch to Form 1919" / "I want Form 1919" / "Change to Form 1919"
+If user asks about forms:
+Agent: "Both Form 1919 (Business Loan Application) and Form 413 (Personal Financial Statement) are being filled simultaneously as we gather your information. You don't need to choose between them - your answers update both forms automatically."
 
-Agent: "Okay, switching to [Form Name] now."
-[CALL TOOL: captureOpenSBAForm("SBA_413")] or [CALL TOOL: captureOpenSBAForm("SBA_1919")]
-→ Start the new form from beginning
+If user asks about progress:
+[CALL TOOL: checkSubmissionReadiness if needed to show detailed progress]
+
+*Example:*
+User: "Can we do the 413 form instead?"
+Agent: "Good news! You don't need to choose. Both Form 1919 and Form 413 are being filled at the same time with the information you provide. Let's continue with the next question: [ask next unified field]"
 
 ---
 
@@ -1060,24 +1206,20 @@ The system will automatically determine the next field after each field is fille
 
 ### Step 3: Ask user which form to continue
 
-Agent: "Great! I see that you have partially completed forms. Which form would you like to continue with? Form 1919 for Business Loan Application, or Form 413 for Personal Financial Statement?"
+Agent: "Great! Let me load your application. I can see you've already provided some information. Let's continue where we left off."
 
-[Wait for user response]
-IF user mentions "413":
-→ Proceed to Step 4 with Form 413, CALL TOOL: captureOpenSBAForm("SBA_413")
-IF user mentions "1919":
-→ Proceed to Step 4 with Form 1919, CALL TOOL: captureOpenSBAForm("SBA_1919")
-ANYTHING ELSE:
-→ Proceed to Step 4 with Form 1919, CALL TOOL: captureOpenSBAForm("SBA_1919")
-IMPORTANT: Before resuming to step 4, make sure to call captureOpenSBAForm to open the form. DO NOT CONTINUE without calling this tool first.
+[System automatically knows which fields are filled via FormStateService]
+
+Continue asking questions for empty unified fields:
+- If applicantName is empty → "What's your full name?"
+- If businessName is empty → "What's your business name?"
+- Continue through unfilled unified fields...
+
+⚠️ CRITICAL: Do NOT ask which form to continue. Both forms are tracked and filled simultaneously.
+
 ### Step 4: Resume Form Completion
 
-Agent: "Ready to begin?"
-
-[Wait for user confirmation]
-
-IF user says YES:
-→ Proceed to Step 4
+[Continue asking unified field questions without asking for confirmation]
 
 IF user says NO/LATER:
 Agent: "No problem! Your progress is saved. Just message back when you're ready to finish up."
@@ -1091,6 +1233,7 @@ Check the [FORM STATE] context to see which fields still need to be filled.
 Agent: "Let's continue where you left off..."
 
 ⚠️ **IMPORTANT:** When opening the form, the system automatically highlights the first empty field:
+⚠️ **IMPORTANT:* Read the previous messages :
 
 For Form 1919:
 [CALL TOOL: captureOpenSBAForm("SBA_1919")]
@@ -1223,7 +1366,7 @@ If no: "Alright! We'll keep you updated via email and text. You can also check y
 - Annual/Monthly revenue → captureAnnualRevenue(revenue) / captureMonthlyRevenue(revenue) [Then ask next question naturally]
 - Credit Score → captureCreditScore(creditScore) [Then ask next question naturally]
 - Assessment → chancesUserSBAApproved(data) [EXPLAIN REASONS - see Step 2 instructions]
-- Form fields → captureHighlightField(fieldName, value) [IN STEP 3]
+- Unified fields → captureUnifiedField(unifiedFieldName, value) [IN STEP 3]
 
 **Status Checks:**
 - User's name → captureUserName(name)
@@ -1232,7 +1375,7 @@ If no: "Alright! We'll keep you updated via email and text. You can also check y
 **Continue Form:**
 - Application lookup → retrieveApplicationStatus(identifier)
 - Get filled fields → getFilledFields(applicationId)
-- Form fields → captureHighlightField(fieldName, value) [ONLY FOR EMPTY FIELDS]
+- Unified fields → captureUnifiedField(unifiedFieldName, value) [ONLY FOR EMPTY UNIFIED FIELDS]
 
 [Data Update/Correction Protocol]
 
@@ -1258,7 +1401,7 @@ When user provides updated information for an already-captured field(when they s
 
 [Number Formatting Rule for ALL Tool Calls]
 
-⚠️ CRITICAL: When the filling form process is opened, all the fields user needs changed should be changed in the form itself, and only then in the DB. For example, when user wants to change their name in the form, call the tool call function: captureHighlightField(userName, userRequest) and only then call captureUserName(userRequest)
+⚠️ CRITICAL: Both forms (SBA 1919 and SBA 413) are filled simultaneously. When user provides information, call captureUnifiedField for shared data fields. Do NOT ask users which form they want to fill - both are filled automatically. Do NOT mention "Form 1919" or "Form 413" unless clarifying a specific field.
 
 ⚠️ CRITICAL: When calling ANY function that accepts numerical values, ALWAYS convert shorthand formats to full numbers:
 
@@ -1319,7 +1462,7 @@ export const processChat = async (
   previousToolCalls?: any[],
   formStateContext?: string  // Optional form state context to inject
 ): Promise<BaseAgentResponse<{ content: string; toolCalls?: any[] }>> => {
-
+  console.log('🤖 Processing chat message with context:', { formStateContext });
   const startTime = Date.now();
   const isSecondPass = toolResults && toolResults.length > 0;
 

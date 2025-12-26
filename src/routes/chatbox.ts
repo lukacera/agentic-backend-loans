@@ -340,8 +340,21 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
     const applicationsResult = toolResults.find(r => r.name === 'retrieveAllApplications');
     const applications = applicationsResult?.data?.applications;
 
-    // Periodic save: save form state after each message (if dirty)
+    // Extract documents from getFilledFields result (for continue_application flow)
+    const filledFieldsResult = toolResults.find(r => r.name === 'getFilledFields');
+    const documents = filledFieldsResult?.data?.documents;
+
+    // Determine active application ID (for form progress and periodic save)
     const activeAppId = newApplicationId || applicationId;
+
+    // Extract formProgress directly from FormStateService for real-time accuracy
+    // This ensures frontend always gets the LATEST progress after all tool executions
+    let formProgress;
+    if (activeAppId && formStateService.hasSession(activeAppId)) {
+      formProgress = formStateService.calculateProgress(activeAppId);
+    }
+
+    // Periodic save: save form state after each message (if dirty)
     if (activeAppId && formStateService.hasSession(activeAppId)) {
       await formStateService.saveSession(activeAppId);
     }
@@ -353,6 +366,8 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
         toolResults: toolResults.length > 0 ? toolResults : undefined,
         userData: updatedSession?.userData,
         flow: detectedFlow,
+        formProgress,      // Top-level for frontend convenience
+        documents,         // Top-level for frontend convenience
         applications: applications || undefined,
         applicationId: newApplicationId || applicationId  // Return current applicationId
       }

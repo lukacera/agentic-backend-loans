@@ -174,11 +174,91 @@ export const SBA_1919_FIELD_NAMES: string[] = SBA_1919_FIELDS.map(f => f.name);
 
 /**
  * SBA Form 413 - Personal Financial Statement
- * Simplified test fields - real fields to be added later
+ * Complete field definitions matching Sba413FieldsSchema in Application.ts
  */
 export const SBA_413_FIELDS: FormFieldDefinition[] = [
-  { name: 'applicantName', required: true, type: 'text', label: 'Applicant Name' },
-  { name: 'businessName', required: true, type: 'text', label: 'Business Name' }
+  // Program Selection (checkboxes)
+  { name: 'disasterBusinessLoanApplication', required: false, type: 'checkbox', label: 'Disaster Business Loan' },
+  { name: 'womenOwnedSmallBusiness', required: false, type: 'checkbox', label: 'WOSB' },
+  { name: 'businessDevelopmentProgram8a', required: false, type: 'checkbox', label: '8(a) Program' },
+  { name: 'loan7aOr504OrSuretyBonds', required: false, type: 'checkbox', label: '7(a)/504/Surety' },
+
+  // Personal Information
+  { name: 'name', required: true, type: 'text', label: 'Name' },
+  { name: 'businessPhone', required: false, type: 'text', label: 'Business Phone' },
+  { name: 'homeAddress', required: false, type: 'text', label: 'Home Address' },
+  { name: 'homePhone', required: false, type: 'text', label: 'Home Phone' },
+  { name: 'cityStateZipCode', required: false, type: 'text', label: 'City, State, ZIP' },
+  { name: 'businessNameOfApplicantBorrower', required: true, type: 'text', label: 'Business Name' },
+  { name: 'businessAddress', required: false, type: 'text', label: 'Business Address' },
+
+  // Business Type (checkboxes)
+  { name: 'businessTypeCorporation', required: false, type: 'checkbox', label: 'Corporation' },
+  { name: 'businessTypeSCorp', required: false, type: 'checkbox', label: 'S-Corp' },
+  { name: 'businessTypeLLC', required: false, type: 'checkbox', label: 'LLC' },
+  { name: 'businessTypePartnership', required: false, type: 'checkbox', label: 'Partnership' },
+  { name: 'businessTypeSoleProprietor', required: false, type: 'checkbox', label: 'Sole Proprietor' },
+
+  // Date and Marital Status
+  { name: 'informationCurrentAsOf', required: false, type: 'text', label: 'Information Current As Of' },
+  { name: 'wosbApplicantMarriedYes', required: false, type: 'checkbox', label: 'WOSB Married Yes' },
+  { name: 'wosbApplicantMarriedNo', required: false, type: 'checkbox', label: 'WOSB Married No' },
+
+  // Assets
+  { name: 'cashOnHandAndInBanks', required: false, type: 'text', label: 'Cash on Hand' },
+  { name: 'savingsAccounts', required: false, type: 'text', label: 'Savings Accounts' },
+  { name: 'iraOrOtherRetirementAccount', required: false, type: 'text', label: 'IRA/Retirement' },
+  { name: 'accountsAndNotesReceivable', required: false, type: 'text', label: 'Accounts Receivable' },
+  { name: 'lifeInsuranceCashSurrenderValueOnly', required: false, type: 'text', label: 'Life Insurance CSV' },
+  { name: 'stocksAndBonds', required: false, type: 'text', label: 'Stocks and Bonds' },
+  { name: 'realEstate', required: false, type: 'text', label: 'Real Estate' },
+  { name: 'automobiles', required: false, type: 'text', label: 'Automobiles' },
+  { name: 'otherPersonalProperty', required: false, type: 'text', label: 'Other Personal Property' },
+  { name: 'otherAssets', required: false, type: 'text', label: 'Other Assets' },
+  { name: 'totalAssets', required: false, type: 'text', label: 'Total Assets' },
+
+  // Liabilities
+  { name: 'accountsPayable', required: false, type: 'text', label: 'Accounts Payable' },
+  { name: 'notesPayableToBanksAndOthers', required: false, type: 'text', label: 'Notes Payable' },
+  { name: 'installmentAccountAuto', required: false, type: 'text', label: 'Auto Installment' },
+  { name: 'installmentAccountMonthlyPaymentsAuto', required: false, type: 'text', label: 'Auto Monthly Payment' },
+  { name: 'installmentAccountOther', required: false, type: 'text', label: 'Other Installment' },
+  { name: 'installmentAccountMonthlyPaymentsOther', required: false, type: 'text', label: 'Other Monthly Payment' },
+  { name: 'loansAgainstLifeInsurance', required: false, type: 'text', label: 'Loans Against Life Insurance' },
+  { name: 'mortgagesOnRealEstate', required: false, type: 'text', label: 'Mortgages' },
+  { name: 'unpaidTaxes', required: false, type: 'text', label: 'Unpaid Taxes' },
+  { name: 'otherLiabilities', required: false, type: 'text', label: 'Other Liabilities' },
+  { name: 'totalLiabilities', required: false, type: 'text', label: 'Total Liabilities' },
+  { name: 'netWorth', required: false, type: 'text', label: 'Net Worth' },
+
+  // Income
+  { name: 'salary', required: false, type: 'text', label: 'Salary' },
+  { name: 'netInvestmentIncome', required: false, type: 'text', label: 'Net Investment Income' },
+  { name: 'realEstateIncome', required: false, type: 'text', label: 'Real Estate Income' },
+  { name: 'otherIncome', required: false, type: 'text', label: 'Other Income' },
+
+  // Contingent Liabilities
+  { name: 'asEndorserOrCoMaker', required: false, type: 'text', label: 'As Endorser/Co-Maker' },
+  { name: 'legalClaimsAndJudgements', required: false, type: 'text', label: 'Legal Claims' },
+  { name: 'provisionForFederalIncomeTax', required: false, type: 'text', label: 'Federal Tax Provision' },
+  { name: 'otherSpecialDebt', required: false, type: 'text', label: 'Other Special Debt' },
+
+  // Sections
+  { name: 'descriptionOfOtherIncomeRow1', required: false, type: 'text', label: 'Other Income Description' },
+  { name: 'section5OtherPersonalPropertyAndAssets', required: false, type: 'text', label: 'Section 5' },
+  { name: 'section6UnpaidTaxes', required: false, type: 'text', label: 'Section 6' },
+  { name: 'section7OtherLiabilities', required: false, type: 'text', label: 'Section 7' },
+  { name: 'section8LifeInsuranceHeld', required: false, type: 'text', label: 'Section 8' },
+
+  // Signatures
+  { name: 'signature', required: false, type: 'text', label: 'Signature' },
+  { name: 'date', required: false, type: 'text', label: 'Date' },
+  { name: 'printName', required: false, type: 'text', label: 'Print Name' },
+  { name: 'socialSecurityNo', required: false, type: 'text', label: 'SSN' },
+  { name: 'signature2', required: false, type: 'text', label: 'Signature 2' },
+  { name: 'date2', required: false, type: 'text', label: 'Date 2' },
+  { name: 'printName2', required: false, type: 'text', label: 'Print Name 2' },
+  { name: 'socialSecurityNo2', required: false, type: 'text', label: 'SSN 2' }
 ];
 
 /**
