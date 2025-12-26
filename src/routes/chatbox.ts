@@ -273,6 +273,21 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
     const { toolCalls } = firstResult.data;
     let finalContent = firstResult.data.content || '';
 
+    // Fallback detection: If no tool calls but user message looks like data response
+    // This catches cases where the LLM failed to call the appropriate tool
+    if ((!toolCalls || toolCalls.length === 0) && finalContent && !message.trim().endsWith('?')) {
+      // User message doesn't end with '?' (likely not a question)
+      // and LLM provided text instead of tool calls
+      // Log warning for monitoring
+      console.log(`⚠️ FALLBACK DETECTION: LLM returned text without tool calls. User message: "${message.trim().substring(0, 50)}..."`);
+      console.log(`⚠️ LLM response: "${finalContent.substring(0, 100)}..."`);
+      console.log(`⚠️ This may indicate a missed data capture opportunity. Review conversation context.`);
+
+      // Note: We're not auto-calling tools here because we don't have enough context
+      // to determine which field/tool to use. Instead, we log for monitoring.
+      // The user's next message should clarify or they can rephrase.
+    }
+
     // Execute tool calls and collect results
     const toolResults: { name: string; success: boolean; message: string; instruction?: string; data?: any }[] = [];
     const toolResultsForLLM: ToolResultForLLM[] = [];

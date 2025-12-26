@@ -451,13 +451,18 @@ export const getStateContext = (applicationId: string): string => {
     nextField = 'COMPLETE';
   }
 
+  // Calculate total fields for each form
+  const total1919 = SBA_1919_FIELD_NAMES.length;
+  const total413 = SBA_413_FIELD_NAMES.length;
+
+  // Simplified context showing only progress and missing required fields
   return `[FORM STATE]
-    Current form: ${currentForm}
-    Next field: ${nextField}
-    Missing required (1919): ${form1919.missingRequired.join(', ') || 'None'} (${form1919.missingRequired.length} fields)
-    Missing required (413): ${form413.missingRequired.join(', ') || 'None'} (${form413.missingRequired.length} fields)
-    Form 1919 submittable: ${form1919.isSubmittable ? 'YES' : 'NO'}
-    Form 413 submittable: ${form413.isSubmittable ? 'YES' : 'NO'}
+Current Form: ${currentForm}
+Form 1919 Progress: ${form1919.filledFields.length}/${total1919} fields (${Math.round((form1919.filledFields.length / total1919) * 100)}%)
+Form 413 Progress: ${form413.filledFields.length}/${total413} fields (${Math.round((form413.filledFields.length / total413) * 100)}%)
+Missing Required (1919): ${form1919.missingRequired.length > 0 ? form1919.missingRequired.join(', ') : 'None'}
+Missing Required (413): ${form413.missingRequired.length > 0 ? form413.missingRequired.join(', ') : 'None'}
+Next Field: ${nextField}
   `;
 };
 

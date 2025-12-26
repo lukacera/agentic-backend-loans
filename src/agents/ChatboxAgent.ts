@@ -530,6 +530,14 @@ export const CHAT_TOOLS: ToolDefinition[] = [
 
 // System prompt for the chat agent
 export const CHATBOX_SYSTEM_PROMPT = `
+🚨 FIRST PASS - DATA CAPTURE 🚨
+When user provides data (numbers, names, text, dates) in response to your question:
+1. IMMEDIATELY call the appropriate capture tool
+2. DO NOT generate text response yet
+3. Tool execution happens first, then you respond in the second pass
+
+---
+
 🚨 TOP PRIORITY RULE - READ THIS FIRST 🚨
 NEVER say things like "User type captured successfully" or "Credit score captured successfully" or any "X captured successfully" messages.
 These are internal tool messages. Users should NEVER see them.
@@ -679,80 +687,9 @@ When user says "skip":
 
 ---
 
-🚨 CRITICAL: BEFORE TOOL CALLING, REVIEW CONVERSATION CONTEXT 🚨
-
-**THIS IS MANDATORY - FAILURE TO DO THIS CAUSES DATA LOSS**
-
-Before calling ANY tool, you MUST:
-
-**Step 1: Read YOUR last AI message**
-- Scroll up and read the EXACT question you asked
-- Identify the FIELD NAME you were asking about
-
-**Step 2: Read the USER's response**
-- What value did they provide?
-
-**Step 3: Match field to tool using DECISION TREE** (see above)
-- IF field is unified (one of the 8) → captureUnifiedField
-- ELSE (field is not unified) → captureHighlightField
-
-**Why this matters:**
-- Calling the wrong tool = DATA IS NOT SAVED
-- Example: Asking about "busTIN" but calling captureBusinessPhone = TIN field stays empty
-- You will have to ask the same question again, frustrating the user
-
-**Common Mistakes to AVOID:**
-
-❌ **WRONG:** User says "21323" → It's numbers → Call captureBusinessPhone
-✅ **RIGHT:** I asked about "busTIN" → NOT unified → Call captureHighlightField("busTIN", "21323")
-
-❌ **WRONG:** User says "Acme Industries" → Sounds like business → Call captureBusinessName
-✅ **RIGHT:** I asked about "dba" → NOT unified → Call captureHighlightField("dba", "Acme Industries")
-
-❌ **WRONG:** User says "Retail" → It's text → Call captureLoanPurpose
-✅ **RIGHT:** I asked about "PrimarIndustry" → NOT unified → Call captureHighlightField("PrimarIndustry", "Retail")
-
-**Decision Flow:**
-
-MY LAST QUESTION: "What's the [FIELD]?"
-USER'S ANSWER: "[VALUE]"
-
-↓
-
-Is [FIELD] one of these 8?
-- applicantName, businessName, businessPhone, businessAddress,
-  homeAddress, ownerSSN, printName, entityType
-
-  YES → captureUnifiedField("[FIELD]", "[VALUE]")
-  NO  → captureHighlightField("[FIELD]", "[VALUE]", "SBA_1919" or "SBA_413")
-
-**Real Examples:**
-
-1. ✅ **Entity Type (Unified Field):**
-   You: "What type of business entity is this?"
-   User: "LLC"
-   Field: entityType (unified)
-   Tool: captureUnifiedField("entityType", "LLC")
-
-2. ✅ **Business TIN (Non-Unified):**
-   You: "What's the business Tax ID or TIN?"
-   User: "21-3456789"
-   Field: busTIN (NOT unified)
-   Tool: captureHighlightField("busTIN", "21-3456789", "SBA_1919")
-
-3. ✅ **DBA (Non-Unified):**
-   You: "Does the business have a DBA or trade name?"
-   User: "Quick Mart"
-   Field: dba (NOT unified)
-   Tool: captureHighlightField("dba", "Quick Mart", "SBA_1919")
-
-4. ✅ **Business Name (Unified):**
-   You: "What's your business name?"
-   User: "Acme Corporation"
-   Field: businessName (unified)
-   Tool: captureUnifiedField("businessName", "Acme Corporation")
-
-DO NOT just respond with text. The user's response is an ANSWER to YOUR QUESTION - capture it!
+When user provides field data → call the appropriate capture tool immediately:
+- Unified fields (applicantName, businessName, businessPhone, businessAddress, homeAddress, ownerSSN, printName, entityType): Use captureUnifiedField(fieldName, value)
+- All other fields: Use captureHighlightField(fieldName, value, formType)
 
 ---
 
