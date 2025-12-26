@@ -138,6 +138,75 @@ Do NOT call detectConversationFlow again unless user explicitly requests a diffe
 };
 
 /**
+ * Build applicantData from session userData for PDF generation
+ */
+const buildApplicantDataFromSession = (userData: Record<string, any>): Partial<SBAApplicationData> => {
+  const applicantData: Partial<SBAApplicationData> = {
+    name: userData.name,
+    businessName: userData.businessName,
+    businessPhoneNumber: userData.businessPhone,
+    creditScore: userData.creditScore,
+    yearFounded: userData.yearFounded,
+    isUSCitizen: userData.usCitizen,
+    userType: userData.userType || 'owner',
+  };
+
+  // Add buyer-specific fields
+  if (userData.purchasePrice) applicantData.purchasePrice = String(userData.purchasePrice);
+  if (userData.availableCash) applicantData.availableCash = String(userData.availableCash);
+  if (userData.businessCashFlow) applicantData.businessCashFlow = String(userData.businessCashFlow);
+  if (userData.industryExperience) applicantData.industryExperience = userData.industryExperience;
+
+  // Add owner-specific fields
+  if (userData.monthlyRevenue) applicantData.monthlyRevenue = String(userData.monthlyRevenue);
+  if (userData.monthlyExpenses) applicantData.monthlyExpenses = String(userData.monthlyExpenses);
+  if (userData.existingDebtPayment) applicantData.existingDebtPayment = String(userData.existingDebtPayment);
+  if (userData.requestedLoanAmount) applicantData.requestedLoanAmount = String(userData.requestedLoanAmount);
+  if (userData.loanPurpose) applicantData.loanPurpose = userData.loanPurpose;
+
+  // Add checkbox fields (prefixed with checkbox_)
+  for (const [key, value] of Object.entries(userData)) {
+    if (key.startsWith('checkbox_') && typeof value === 'string') {
+      (applicantData as any)[key] = value;
+    }
+  }
+
+  return applicantData;
+};
+
+/**
+ * Update draft PDFs in S3 with current session data
+ * Called when form is complete or on inactivity timeout
+ */
+export const updateDraftPDFsInBackground = async (
+  sessionId: string,
+  applicationId: string
+): Promise<void> => {
+  try {
+    const session = await getSession(sessionId);
+    if (!session?.userData) {
+      console.log(`⚠️ No userData found for session ${sessionId}, skipping PDF update`);
+      return;
+    }
+
+    // Build applicantData from session userData
+    const applicantData = buildApplicantDataFromSession(session.userData);
+
+    // Regenerate and upload PDFs (overwrites existing in S3)
+    await generateDraftPDFs(applicantData, applicationId);
+
+    // Update application record with latest draft documents
+    await Application.findByIdAndUpdate(applicationId, {
+      updatedAt: new Date()
+    });
+
+    console.log(`✅ Draft PDFs updated for application ${applicationId}`);
+  } catch (error) {
+    console.error(`❌ Failed to update draft PDFs for application ${applicationId}:`, error);
+  }
+};
+
+/**
  * Handle captureUserName tool
  */
 export const handleCaptureUserName = async (
@@ -1469,11 +1538,6 @@ export const handleGetFilledFields = async (
     // Calculate form progress percentages
     const formProgress = formStateService.calculateProgress(applicationId);
 
-    console.log(`✅ Retrieved field state from FormStateService for ${applicationId}`);
-    console.log(`   SBA 1919: ${result1919.filledFields.length} filled, ${result1919.emptyFields.length} empty`);
-    console.log(`   SBA 413: ${result413.filledFields.length} filled, ${result413.emptyFields.length} empty`);
-    console.log(`   Progress: SBA_1919=${formProgress?.SBA_1919}%, SBA_413=${formProgress?.SBA_413}%`);
-
     return {
       success: true,
       message: 'Field analysis complete',
@@ -1586,6 +1650,13 @@ export const handleCheckSubmissionReadiness = async (
   }
 
   const readiness = formStateService.checkSubmissionReadiness(applicationId);
+
+  // If all forms are ready, trigger background PDF update
+  if (readiness.allReady && applicationId) {
+    // Fire and forget - don't block the response
+    updateDraftPDFsInBackground(sessionId, applicationId)
+      .catch(err => console.error('Background PDF update failed:', err));
+  }
 
   let instruction: string;
   if (readiness.allReady) {

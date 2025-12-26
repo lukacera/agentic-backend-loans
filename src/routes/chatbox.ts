@@ -12,15 +12,64 @@ import {
   deleteSession,
   executeToolCall,
   formStateService,
-  getFlowContext
+  getFlowContext,
+  updateDraftPDFsInBackground
 } from '../services/chatboxService.js';
 import { ChatMessage, ConversationFlow } from '../types/index.js';
+import websocketService from '../services/websocket.js';
 
 const router = express.Router();
 
 // Initialize the chatbox agent
 const chatboxAgent = createChatboxAgent();
 initializeChatboxAgent().catch(console.error);
+
+// ==============================
+// INACTIVITY TIMER MANAGEMENT
+// ==============================
+
+// Map to track inactivity timers per session
+const sessionInactivityTimers = new Map<string, NodeJS.Timeout>();
+
+/**
+ * Reset the inactivity timer for a session
+ * After 30 seconds of inactivity, PDFs will be updated in S3
+ */
+const resetInactivityTimer = (sessionId: string, applicationId?: string) => {
+  // Clear existing timer
+  const existingTimer = sessionInactivityTimers.get(sessionId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  // Set new 30-second timer only if we have an applicationId
+  if (applicationId) {
+    const timer = setTimeout(async () => {
+      console.log(`⏱️ Inactivity timeout for session ${sessionId}, updating PDFs...`);
+      await updateDraftPDFsInBackground(sessionId, applicationId);
+      sessionInactivityTimers.delete(sessionId);
+    }, 30000); // 30 seconds
+
+    sessionInactivityTimers.set(sessionId, timer);
+  }
+};
+
+/**
+ * Clear the inactivity timer for a session
+ * Called when session ends or is deleted
+ */
+const clearInactivityTimer = (sessionId: string) => {
+  const timer = sessionInactivityTimers.get(sessionId);
+  if (timer) {
+    clearTimeout(timer);
+    sessionInactivityTimers.delete(sessionId);
+  }
+};
+
+/**
+ * Get WebSocket rooms for a session
+ */
+const getRooms = (sessionId: string): string[] => ['global', sessionId];
 
 /**
  * Generate fallback response if LLM fails to produce text after max iterations
@@ -64,6 +113,18 @@ router.get('/sessions/:sessionId', async (req, res) => {
       });
     }
 
+    // Include form field data if session has an application linked
+    let formFieldData = null;
+    if (session.applicationId) {
+      const appId = session.applicationId.toString();
+      // Ensure form state session is started
+      if (!formStateService.hasSession(appId)) {
+        await formStateService.startSession(appId);
+      }
+      // Get complete field data
+      formFieldData = formStateService.getCompleteFieldData(appId);
+    }
+
     res.json({
       success: true,
       data: {
@@ -71,6 +132,7 @@ router.get('/sessions/:sessionId', async (req, res) => {
         messages: session.messages,
         userData: session.userData,
         applicationId: session.applicationId,
+        formFieldData,  // NEW: Include complete field data
         createdAt: session.createdAt,
         updatedAt: session.updatedAt
       }
@@ -106,6 +168,9 @@ router.delete('/sessions/:sessionId', async (req, res) => {
       console.log(`🔚 Ending form state session for application: ${applicationId}`);
       await formStateService.endSession(applicationId);
     }
+
+    // Clear inactivity timer to prevent orphan PDF updates
+    clearInactivityTimer(sessionId);
 
     const deleted = await deleteSession(sessionId);
     if (!deleted) {
@@ -359,6 +424,28 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
       await formStateService.saveSession(activeAppId);
     }
 
+    // Get complete PDF field data for JSON response
+    let formFieldData = null;
+    if (activeAppId && formStateService.hasSession(activeAppId)) {
+      formFieldData = formStateService.getCompleteFieldData(activeAppId);
+
+      // Also broadcast via WebSocket for real-time updates
+      if (formFieldData) {
+        const rooms = getRooms(sessionId);
+        websocketService.broadcast('pdf-fields-update', {
+          sessionId,
+          timestamp: new Date().toISOString(),
+          applicationId: activeAppId,
+          forms: formFieldData,
+          source: 'chat'
+        }, rooms);
+        console.log(`📄 Broadcasted complete PDF field data for session ${sessionId}`);
+      }
+    }
+
+    // Reset inactivity timer - will update PDFs after 30 seconds of no activity
+    resetInactivityTimer(sessionId, activeAppId);
+
     res.json({
       success: true,
       data: {
@@ -367,6 +454,7 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
         userData: updatedSession?.userData,
         flow: detectedFlow,
         formProgress,      // Top-level for frontend convenience
+        formFieldData,     // Complete PDF field data for frontend rendering
         documents,         // Top-level for frontend convenience
         applications: applications || undefined,
         applicationId: newApplicationId || applicationId  // Return current applicationId

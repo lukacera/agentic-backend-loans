@@ -582,6 +582,53 @@ export const updateEntityTypeAcrossForms = (
   return result;
 };
 
+/**
+ * Get complete field data for both forms
+ * Returns all field values, progress percentages, and submittable status
+ * Used for sending complete PDF field state to frontend
+ */
+export const getCompleteFieldData = (applicationId: string): {
+  SBA_1919: { fields: Record<string, string | boolean>; progress: number; submittable: boolean };
+  SBA_413: { fields: Record<string, string | boolean>; progress: number; submittable: boolean };
+} | null => {
+  const state = stateStore.get(applicationId);
+  if (!state) {
+    console.warn(`⚠️ No session found for ${applicationId}`);
+    return null;
+  }
+
+  const progress = calculateProgress(applicationId);
+  if (!progress) {
+    console.warn(`⚠️ Failed to calculate progress for ${applicationId}`);
+    return null;
+  }
+
+  // Filter out Mongoose internal fields (like $__parent) from allFields
+  const cleanFields = (fields: Record<string, string | boolean>): Record<string, string | boolean> => {
+    const cleaned: Record<string, string | boolean> = {};
+    for (const [key, value] of Object.entries(fields)) {
+      // Skip Mongoose internal fields that start with $
+      if (!key.startsWith('$') && !key.startsWith('_doc')) {
+        cleaned[key] = value;
+      }
+    }
+    return cleaned;
+  };
+
+  return {
+    SBA_1919: {
+      fields: cleanFields(state.sba1919.allFields),
+      progress: progress.SBA_1919,
+      submittable: state.sba1919.isSubmittable
+    },
+    SBA_413: {
+      fields: cleanFields(state.sba413.allFields),
+      progress: progress.SBA_413,
+      submittable: state.sba413.isSubmittable
+    }
+  };
+};
+
 // Export as default object for convenience
 export default {
   startSession,
@@ -599,5 +646,6 @@ export default {
   clearAllSessions,
   calculateProgress,
   updateFieldAcrossForms,
-  updateEntityTypeAcrossForms
+  updateEntityTypeAcrossForms,
+  getCompleteFieldData
 };
