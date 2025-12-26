@@ -27,7 +27,7 @@ export const createAgent = (name: string, config: Partial<AgentConfig> = {}): Ag
 
   const llm = new ChatAnthropic({
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-    modelName: "claude-opus-4-0"
+    modelName: "claude-haiku-4-5"
   });
 
   return {
