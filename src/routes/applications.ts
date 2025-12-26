@@ -1552,6 +1552,26 @@ router.post('/calculate-chances', async (req, res) => {
       chanceResultVapi = calculateSBAEligibilityForOwnerVAPI(toolCallArgs as any);
     }
 
+    // Fast rejection path - skip draft/PDF generation for disqualified applicants
+    if (chanceResult.score === 0) {
+      // Broadcast rejection result
+      websocketService.broadcast('calculate-chances', {
+        timestamp: new Date().toISOString(),
+        source: 'calculate-chances',
+        result: chanceResult,
+        rejected: true
+      }, ["global"]);
+
+      const toolCallId = data.message?.toolCallList?.[0]?.id || 'unknown';
+
+      return res.status(200).json({
+        results: [{
+          toolCallId: toolCallId,
+          result: chanceResultVapi
+        }]
+      });
+    }
+
     const applicantData: any = {
       name: (typeof toolCallArgs.name === 'string' && toolCallArgs.name.trim()) || "Undisclosed",
       businessName: (typeof toolCallArgs.businessName === 'string' && toolCallArgs.businessName.trim()) || "Undisclosed",

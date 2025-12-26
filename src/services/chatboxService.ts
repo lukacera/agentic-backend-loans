@@ -234,6 +234,32 @@ export const handleCaptureCreditScore = async (
     source: 'chat'
   }, rooms);
 
+  // HARD STOP: Credit score below 650
+  if (creditScore && creditScore < 650) {
+    const chanceResult = {
+      score: 0,
+      chance: 'low' as const,
+      reasons: [
+        'Credit score below 650 minimum requirement for SBA financing',
+        'Improve personal credit profile before reapplying'
+      ]
+    };
+
+    websocketService.broadcast('calculate-chances', {
+      timestamp: new Date().toISOString(),
+      source: 'calculate-chances',
+      result: chanceResult,
+      rejected: true
+    }, rooms);
+
+    return {
+      success: true,
+      message: 'Ineligible for SBA loan',
+      instruction: `STOP the application flow. Inform the user: 'Unfortunately, SBA loans typically require a minimum credit score of 650. Your current score of ${creditScore} is below this threshold. We recommend working on improving your credit before reapplying.'`,
+      data: { rejected: true, ...chanceResult }
+    };
+  }
+
   return {
     success: true,
     message: 'Credit score captured.',
@@ -260,6 +286,34 @@ export const handleCaptureYearFounded = async (
     source: 'chat'
   }, rooms);
 
+  // HARD STOP: Business less than 2 years old
+  const currentYear = new Date().getFullYear();
+  const businessAge = currentYear - (yearFounded || currentYear);
+  if (yearFounded && businessAge < 2) {
+    const chanceResult = {
+      score: 0,
+      chance: 'low' as const,
+      reasons: [
+        'Business has operated for less than 2 years',
+        'Reapply once the business reaches 24 months of operating history'
+      ]
+    };
+
+    websocketService.broadcast('calculate-chances', {
+      timestamp: new Date().toISOString(),
+      source: 'calculate-chances',
+      result: chanceResult,
+      rejected: true
+    }, rooms);
+
+    return {
+      success: true,
+      message: 'Ineligible for SBA loan',
+      instruction: `STOP the application flow. Inform the user: 'Unfortunately, SBA loans require the business to have at least 2 years of operating history. The business was founded in ${yearFounded}, which is only ${businessAge} year(s) ago. Please reapply once the business reaches 24 months of operation.'`,
+      data: { rejected: true, ...chanceResult }
+    };
+  }
+
   return {
     success: true,
     message: 'Year founded captured.',
@@ -285,6 +339,32 @@ export const handleCaptureUSCitizen = async (
     fields: { usCitizen },
     source: 'chat'
   }, rooms);
+
+  // HARD STOP: Non-US citizens are ineligible for SBA loans
+  if (usCitizen === false || usCitizen === 'false' || usCitizen === 'no') {
+    const chanceResult = {
+      score: 0,
+      chance: 'low' as const,
+      reasons: [
+        'Non-US citizens are ineligible for SBA loans',
+        'Consider alternative financing options such as conventional business loans or seller financing'
+      ]
+    };
+
+    websocketService.broadcast('calculate-chances', {
+      timestamp: new Date().toISOString(),
+      source: 'calculate-chances',
+      result: chanceResult,
+      rejected: true
+    }, rooms);
+
+    return {
+      success: true,
+      message: 'Ineligible for SBA loan',
+      instruction: "STOP the application flow. Inform the user: 'Unfortunately, SBA loans require US citizenship or lawful permanent resident status. You may want to explore alternative financing options such as conventional business loans or seller financing.'",
+      data: { rejected: true, ...chanceResult }
+    };
+  }
 
   return {
     success: true,

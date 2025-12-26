@@ -1489,7 +1489,31 @@ export function calculateSBAEligibilityForOwner(data: SBAEligibilityRequestOwner
     };
   }
 
-  // Credit Score Check
+  // Credit score minimum check (HARD STOP)
+  if (Number.isNaN(creditScoreValue) || creditScoreValue < 650) {
+    return {
+      score: 0,
+      chance: 'low',
+      reasons: [
+        'Credit score below 650 minimum requirement for SBA financing',
+        'Improve personal credit profile before reapplying'
+      ]
+    };
+  }
+
+  // Operating history minimum check (HARD STOP)
+  if (businessYearsRunning < 2) {
+    return {
+      score: 0,
+      chance: 'low',
+      reasons: [
+        'Business has operated for less than 2 years',
+        'Reapply once the business reaches 24 months of operating history'
+      ]
+    };
+  }
+
+  // Credit Score Check (scoring for 650+)
   if (creditScoreValue > 0) {
     if (creditScoreValue >= 720) {
       reasons.push('Strong credit profile');
@@ -1498,20 +1522,14 @@ export function calculateSBAEligibilityForOwner(data: SBAEligibilityRequestOwner
     } else if (creditScoreValue >= 650) {
       score -= 15;
       reasons.push('Credit score is on the lower end for SBA approval');
-    } else {
-      score -= 30;
-      reasons.push('Credit score below SBA typical minimum (650)');
     }
   }
 
-  // Business Age Check
+  // Business Age Check (scoring for 2+ years)
   if (businessYearsRunning >= 5) {
     reasons.push('Well-established business history');
   } else if (businessYearsRunning >= 2) {
     score -= 5;
-  } else {
-    score -= 40;
-    reasons.push('Business must operate for minimum 2 years for SBA eligibility');
   }
 
   // Cash Flow / DSCR Check
@@ -1643,7 +1661,17 @@ export function calculateSBAEligibilityForOwnerVAPI(data: SBAEligibilityRequestO
     return 'Ineligible for SBA loan, Non-US citizens are ineligible for SBA loans, Recommendation: Consider alternative lending options';
   }
 
-  // 2. Credit Score Check
+  // 2. Credit Score Check (HARD STOP for < 650)
+  if (Number.isNaN(creditScoreValue) || creditScoreValue < 650) {
+    return 'Ineligible for SBA loan, Credit score below 650 minimum requirement for SBA financing, Recommendation: Improve personal credit profile before reapplying';
+  }
+
+  // 3. Business Age Check (HARD STOP for < 2 years)
+  if (businessYearsRunning < 2) {
+    return 'Ineligible for SBA loan, Business has operated for less than 2 years, Recommendation: Reapply once the business reaches 24 months of operating history';
+  }
+
+  // Credit Score scoring (for 650+)
   let creditScoreCheck = { passed: true, message: 'Credit score not provided' };
 
   if (creditScoreValue > 0) {
@@ -1658,30 +1686,18 @@ export function calculateSBAEligibilityForOwnerVAPI(data: SBAEligibilityRequestO
       score -= 15;
       reasons.push('Credit score is on the lower end for SBA approval');
       recommendations.push('Consider improving credit score before applying');
-    } else {
-      creditScoreCheck = { passed: false, message: 'Credit score below 650 - High risk' };
-      score -= 30;
-      reasons.push('Credit score below SBA typical minimum (650)');
-      recommendations.push('Work on improving credit score to 680+ for better approval odds');
     }
   }
 
-  // 3. Business Age Check (Owner's existing business)
+  // Business Age scoring (for 2+ years)
   let businessAgeCheck = { passed: true, message: 'Business age not provided' };
 
-  if (businessYearsRunning !== null && businessYearsRunning !== undefined) {
-    if (businessYearsRunning >= 5) {
-      businessAgeCheck = { passed: true, message: `Established business (${businessYearsRunning} years) ✓` };
-      reasons.push('Well-established business history');
-    } else if (businessYearsRunning >= 2) {
-      businessAgeCheck = { passed: true, message: `Business meets minimum (${businessYearsRunning} years) ✓` };
-      score -= 5;
-    } else {
-      businessAgeCheck = { passed: false, message: `Business too young (${businessYearsRunning} years < 2 years required)` };
-      score -= 40;
-      reasons.push('Business must operate for minimum 2 years for SBA eligibility');
-      recommendations.push('Wait until business reaches 2-year operating history');
-    }
+  if (businessYearsRunning >= 5) {
+    businessAgeCheck = { passed: true, message: `Established business (${businessYearsRunning} years) ✓` };
+    reasons.push('Well-established business history');
+  } else if (businessYearsRunning >= 2) {
+    businessAgeCheck = { passed: true, message: `Business meets minimum (${businessYearsRunning} years) ✓` };
+    score -= 5;
   }
 
   // 4. Down Payment Check (based on loan purpose)
