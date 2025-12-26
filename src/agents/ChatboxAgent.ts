@@ -1449,13 +1449,15 @@ export const processChat = async (
       }
 
       // Add instruction to respond with content only - no more tool calls
-      langchainMessages.push(new SystemMessage(
-        'You have received the tool results above. Now respond to the user with ONLY natural language text. ' +
-        'Do NOT call any more tools. Your response goes directly to the chat UI. ' +
-        'Based on the tool results and instructions: ' +
-        '- Acknowledge what was captured (e.g., "Got it", "Thanks") ' +
+      // Using HumanMessage instead of SystemMessage for Anthropic compatibility
+      langchainMessages.push(new HumanMessage(
+        '[INSTRUCTION] Based on the tool results above, respond to the user with natural language. ' +
+        'Do NOT call any more tools - your response goes directly to the chat UI. ' +
+        'Guidelines: ' +
+        '- Acknowledge what was captured naturally (e.g., "Got it", "Thanks") ' +
         '- Ask the next question in the conversation flow ' +
-        '- Do NOT echo technical messages like "Field highlighted successfully"'
+        '- Do NOT echo technical messages like "Field highlighted successfully" ' +
+        '- If tool result contains an "instruction" field, follow it exactly'
       ));
     }
 
