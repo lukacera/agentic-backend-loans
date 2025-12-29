@@ -21,6 +21,7 @@ import {
 } from './s3Service.js';
 import { recommendBank } from './bankService.js';
 import { PDFDocument } from 'pdf-lib';
+import { createEmptyFieldsObject } from './formFields.js';
 
 // SBA Eligibility Calculator Interfaces
 interface SBAEligibilityRequestBuyer {
@@ -96,6 +97,7 @@ export const createDraft = async (
   loanChances?: { score: number; chance: 'low' | 'medium' | 'high'; reasons: string[] }
 ): Promise<SBAApplication> => {
   try {
+    console.log("loan chances in create draft:");
     await initializeDirectories();
     console.log(loanChances);
     // Create application in MongoDB with DRAFT status
@@ -105,6 +107,8 @@ export const createDraft = async (
       documentsGenerated: false,
       emailSent: false,
       generatedDocuments: [],
+      sba1919Fields: createEmptyFieldsObject('SBA_1919'),
+      sba413Fields: createEmptyFieldsObject('SBA_413'),
       ...(loanChances && {
         loanChances: {
           ...loanChances,
@@ -178,7 +182,9 @@ export const createApplication = async (
       status: ApplicationStatus.SUBMITTED,
       documentsGenerated: false,
       emailSent: false,
-      generatedDocuments: []
+      generatedDocuments: [],
+      sba1919Fields: createEmptyFieldsObject('SBA_1919'),
+      sba413Fields: createEmptyFieldsObject('SBA_413')
     });
 
     await application.save();
@@ -218,7 +224,6 @@ const processApplicationAsync = async (application: SBAApplication): Promise<voi
     );
 
     // Update application with S3 information
-    application.unsignedDocuments = uploadedDocs;
     application.documentsUploadedToS3 = true;
     application.s3UploadedAt = new Date();
     application.status = ApplicationStatus.AWAITING_SIGNATURE;
@@ -525,8 +530,6 @@ export const handleSignedDocuments = async (
       });
     }
 
-    // Push signed documents to array instead of replacing
-    application.signedDocuments.push(...uploadedSignedDocs);
     application.status = ApplicationStatus.SIGNED;
     application.signingStatus = 'completed';
     application.signedDate = new Date();
@@ -644,98 +647,6 @@ const downloadDocumentsFromS3 = async (
   return documentBuffers;
 };
 
-export const markUnsignedDocumentAsSigned = async (
-  applicationId: string,
-  options: {
-    fileName?: string;
-    s3Key?: string;
-    signedBy?: string;
-    signingProvider?: string;
-    signingRequestId?: string;
-    signedAt?: string | Date;
-    signedS3Key?: string;
-    signedS3Url?: string;
-  }
-): Promise<SBAApplication> => {
-  const {
-    fileName,
-    s3Key,
-    signedBy,
-    signingProvider,
-    signingRequestId,
-    signedAt,
-    signedS3Key,
-    signedS3Url
-  } = options;
-
-  if (!fileName && !s3Key) {
-    throw new Error('Document identifier (fileName or s3Key) is required');
-  }
-
-  const application = await Application.findById(applicationId);
-
-  if (!application) {
-    throw new Error('Application not found');
-  }
-
-  const unsignedIndex = application.unsignedDocuments.findIndex((doc) => {
-    if (s3Key && doc.s3Key === s3Key) {
-      return true;
-    }
-
-    if (fileName && doc.fileName === fileName) {
-      return true;
-    }
-
-    return false;
-  });
-
-  if (unsignedIndex === -1) {
-    throw new Error('Unsigned document not found');
-  }
-
-  const unsignedDoc = application.unsignedDocuments.splice(unsignedIndex, 1)[0];
-  const signedAtValue = signedAt ? new Date(signedAt) : new Date();
-
-  const signedDoc: DocumentStorageInfo = {
-    fileName: unsignedDoc.fileName,
-    s3Key: signedS3Key ?? unsignedDoc.s3Key,
-    s3Url: signedS3Url ?? unsignedDoc.s3Url,
-    uploadedAt: unsignedDoc.uploadedAt,
-    signedAt: signedAtValue,
-    fileType: unsignedDoc.fileType
-  };
-
-  application.signedDocuments.push(signedDoc);
-  application.markModified('unsignedDocuments');
-  application.markModified('signedDocuments');
-
-  if (signedBy) {
-    application.signedBy = signedBy;
-  }
-
-  if (signingProvider) {
-    application.signingProvider = signingProvider as any;
-  }
-
-  if (signingRequestId) {
-    application.signingRequestId = signingRequestId;
-  }
-
-  if (application.unsignedDocuments.length === 0) {
-    application.status = ApplicationStatus.SIGNED;
-    application.signingStatus = 'completed';
-    application.signedDate = signedAtValue;
-  } else {
-    application.status = ApplicationStatus.AWAITING_SIGNATURE;
-    application.signingStatus = 'pending';
-  }
-
-  await application.save();
-
-  return application;
-};
-
 export const markDraftDocumentAsSigned = async (
   applicationId: string,
   options: {
@@ -820,65 +731,6 @@ export const markDraftDocumentAsSigned = async (
   const signedAtValue = signedAt ? new Date(signedAt) : new Date();
   application.signingStatus = 'completed';
   application.signedDate = signedAtValue;
-
-  await application.save();
-
-  return application;
-};
-
-export const deleteSignedDocument = async (
-  applicationId: string,
-  options: {
-    fileName?: string;
-    s3Key?: string;
-  }
-): Promise<SBAApplication> => {
-  const { fileName, s3Key } = options;
-
-  if (!fileName && !s3Key) {
-    throw new Error('Document identifier (fileName or s3Key) is required');
-  }
-
-  const application = await Application.findById(applicationId);
-
-  if (!application) {
-    throw new Error('Application not found');
-  }
-
-  const signedIndex = application.signedDocuments.findIndex((doc) => {
-    if (s3Key && doc.s3Key === s3Key) {
-      return true;
-    }
-
-    if (fileName && doc.fileName === fileName) {
-      return true;
-    }
-
-    return false;
-  });
-
-  if (signedIndex === -1) {
-    throw new Error('Signed document not found');
-  }
-
-  const [signedDoc] = application.signedDocuments.splice(signedIndex, 1);
-
-  try {
-    await deleteDocument(signedDoc.s3Key);
-  } catch (error) {
-    // Reinsert document to maintain consistency if delete fails
-    application.signedDocuments.splice(signedIndex, 0, signedDoc);
-    throw error;
-  }
-
-  application.markModified('signedDocuments');
-
-  if (application.signedDocuments.length === 0) {
-    application.status = ApplicationStatus.AWAITING_SIGNATURE;
-    application.signingStatus = 'pending';
-    application.signedDate = undefined;
-    application.signedBy = undefined;
-  }
 
   await application.save();
 
@@ -1637,7 +1489,31 @@ export function calculateSBAEligibilityForOwner(data: SBAEligibilityRequestOwner
     };
   }
 
-  // Credit Score Check
+  // Credit score minimum check (HARD STOP)
+  if (Number.isNaN(creditScoreValue) || creditScoreValue < 650) {
+    return {
+      score: 0,
+      chance: 'low',
+      reasons: [
+        'Credit score below 650 minimum requirement for SBA financing',
+        'Improve personal credit profile before reapplying'
+      ]
+    };
+  }
+
+  // Operating history minimum check (HARD STOP)
+  if (businessYearsRunning < 2) {
+    return {
+      score: 0,
+      chance: 'low',
+      reasons: [
+        'Business has operated for less than 2 years',
+        'Reapply once the business reaches 24 months of operating history'
+      ]
+    };
+  }
+
+  // Credit Score Check (scoring for 650+)
   if (creditScoreValue > 0) {
     if (creditScoreValue >= 720) {
       reasons.push('Strong credit profile');
@@ -1646,20 +1522,14 @@ export function calculateSBAEligibilityForOwner(data: SBAEligibilityRequestOwner
     } else if (creditScoreValue >= 650) {
       score -= 15;
       reasons.push('Credit score is on the lower end for SBA approval');
-    } else {
-      score -= 30;
-      reasons.push('Credit score below SBA typical minimum (650)');
     }
   }
 
-  // Business Age Check
+  // Business Age Check (scoring for 2+ years)
   if (businessYearsRunning >= 5) {
     reasons.push('Well-established business history');
   } else if (businessYearsRunning >= 2) {
     score -= 5;
-  } else {
-    score -= 40;
-    reasons.push('Business must operate for minimum 2 years for SBA eligibility');
   }
 
   // Cash Flow / DSCR Check
@@ -1791,7 +1661,17 @@ export function calculateSBAEligibilityForOwnerVAPI(data: SBAEligibilityRequestO
     return 'Ineligible for SBA loan, Non-US citizens are ineligible for SBA loans, Recommendation: Consider alternative lending options';
   }
 
-  // 2. Credit Score Check
+  // 2. Credit Score Check (HARD STOP for < 650)
+  if (Number.isNaN(creditScoreValue) || creditScoreValue < 650) {
+    return 'Ineligible for SBA loan, Credit score below 650 minimum requirement for SBA financing, Recommendation: Improve personal credit profile before reapplying';
+  }
+
+  // 3. Business Age Check (HARD STOP for < 2 years)
+  if (businessYearsRunning < 2) {
+    return 'Ineligible for SBA loan, Business has operated for less than 2 years, Recommendation: Reapply once the business reaches 24 months of operating history';
+  }
+
+  // Credit Score scoring (for 650+)
   let creditScoreCheck = { passed: true, message: 'Credit score not provided' };
 
   if (creditScoreValue > 0) {
@@ -1806,30 +1686,18 @@ export function calculateSBAEligibilityForOwnerVAPI(data: SBAEligibilityRequestO
       score -= 15;
       reasons.push('Credit score is on the lower end for SBA approval');
       recommendations.push('Consider improving credit score before applying');
-    } else {
-      creditScoreCheck = { passed: false, message: 'Credit score below 650 - High risk' };
-      score -= 30;
-      reasons.push('Credit score below SBA typical minimum (650)');
-      recommendations.push('Work on improving credit score to 680+ for better approval odds');
     }
   }
 
-  // 3. Business Age Check (Owner's existing business)
+  // Business Age scoring (for 2+ years)
   let businessAgeCheck = { passed: true, message: 'Business age not provided' };
 
-  if (businessYearsRunning !== null && businessYearsRunning !== undefined) {
-    if (businessYearsRunning >= 5) {
-      businessAgeCheck = { passed: true, message: `Established business (${businessYearsRunning} years) ✓` };
-      reasons.push('Well-established business history');
-    } else if (businessYearsRunning >= 2) {
-      businessAgeCheck = { passed: true, message: `Business meets minimum (${businessYearsRunning} years) ✓` };
-      score -= 5;
-    } else {
-      businessAgeCheck = { passed: false, message: `Business too young (${businessYearsRunning} years < 2 years required)` };
-      score -= 40;
-      reasons.push('Business must operate for minimum 2 years for SBA eligibility');
-      recommendations.push('Wait until business reaches 2-year operating history');
-    }
+  if (businessYearsRunning >= 5) {
+    businessAgeCheck = { passed: true, message: `Established business (${businessYearsRunning} years) ✓` };
+    reasons.push('Well-established business history');
+  } else if (businessYearsRunning >= 2) {
+    businessAgeCheck = { passed: true, message: `Business meets minimum (${businessYearsRunning} years) ✓` };
+    score -= 5;
   }
 
   // 4. Down Payment Check (based on loan purpose)
