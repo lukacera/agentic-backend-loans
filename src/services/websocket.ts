@@ -62,7 +62,8 @@ export const initialize = (httpServer: HTTPServer): SocketIOServer => {
         'http://localhost:3000',
         'http://localhost:5173',
         'https://new-torvely-dashboard.vercel.app',
-        'chrome-extension://oeaoefimiancojpimjmkigjdkpaenbdg'
+        'chrome-extension://oeaoefimiancojpimjmkigjdkpaenbdg',
+        'https://herminia-clangorous-alphonse.ngrok-free.dev'
       ],
       methods: ['GET', 'POST'],
       credentials: true

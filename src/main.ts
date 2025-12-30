@@ -40,6 +40,7 @@ app.use(cors({
       'http://localhost:5174',
       'https://new-torvely-dashboard.vercel.app',
       'https://dashboard.vapi.ai',
+      'https://herminia-clangorous-alphonse.ngrok-free.dev',
       "chrome-extension://oeaoefimiancojpimjmkigjdkpaenbdg"
     ];
     if (!origin || allowedOrigins.includes(origin)) {
