@@ -18,6 +18,8 @@ import { VapiClient } from "@vapi-ai/server-sdk"
 import { Application } from './models/Application.js';
 import { downloadDocument } from './services/s3Service.js';
 import { extractFormFieldValues, CHECKBOX_GROUPS, getGroupCheckboxes, CHECKBOX_GROUPS_413, getGroupCheckboxes413 } from './services/pdfFormProcessor.js';
+import { requireAuth } from './middleware/auth.js';
+import { verifyVapiWebhook } from './middleware/vapiAuth.js';
 
 // Load environment variables
 dotenv.config();
@@ -275,7 +277,7 @@ app.post('/api/create-vapi-assistant', async (req, res) => {
   }
 });
 
-app.post('/vapi-ai', async (req, res) => {
+app.post('/vapi-ai', verifyVapiWebhook, async (req, res) => {
   try {
     const { message } = req.body;
 
@@ -1403,11 +1405,11 @@ function getUserData(callId: string | undefined) {
 }
 
 // Agent routes
-app.use('/api/docs', docsRouter);
-app.use('/api/emails', emailRouter);
-app.use('/api/applications', applicationsRouter);
-app.use('/api/banks', bankRouter);
-app.use('/api/chat', chatboxRouter);
+app.use('/api/docs', docsRouter);  // Public
+app.use('/api/emails', emailRouter);  // Public (internal use)
+app.use('/api/applications', requireAuth, applicationsRouter);  // Protected
+app.use('/api/banks', requireAuth, bankRouter);  // Protected
+app.use('/api/chat', chatboxRouter);  // Protected
 
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

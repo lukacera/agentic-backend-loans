@@ -35,6 +35,11 @@ const chatSessionSchema = new Schema<IChatSessionDocument>({
   applicationId: {
     type: Schema.Types.ObjectId,
     ref: 'Application'
+  },
+  userId: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    index: true
   }
 }, {
   timestamps: true
@@ -43,5 +48,6 @@ const chatSessionSchema = new Schema<IChatSessionDocument>({
 // Index for efficient queries
 chatSessionSchema.index({ createdAt: -1 });
 chatSessionSchema.index({ applicationId: 1 });
+chatSessionSchema.index({ userId: 1, createdAt: -1 });
 
 export const ChatSession = model<IChatSessionDocument>('ChatSession', chatSessionSchema);

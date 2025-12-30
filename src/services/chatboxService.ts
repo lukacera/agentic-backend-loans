@@ -23,12 +23,13 @@ import { getFieldLabel } from './formFields.js';
 /**
  * Create a new chat session
  */
-export const createSession = async (): Promise<IChatSessionDocument> => {
+export const createSession = async (userId?: string): Promise<IChatSessionDocument> => {
   const sessionId = uuidv4();
   const session = new ChatSession({
     sessionId,
     messages: [],
-    userData: {}
+    userData: {},
+    userId
   });
   await session.save();
   return session;

@@ -94,7 +94,8 @@ const initializeDirectories = async (): Promise<void> => {
 // Create new SBA application as draft
 export const createDraft = async (
   applicantData: SBAApplicationData,
-  loanChances?: { score: number; chance: 'low' | 'medium' | 'high'; reasons: string[] }
+  loanChances?: { score: number; chance: 'low' | 'medium' | 'high'; reasons: string[] },
+  ownerId?: string
 ): Promise<SBAApplication> => {
   try {
     console.log("loan chances in create draft:");
@@ -109,6 +110,7 @@ export const createDraft = async (
       generatedDocuments: [],
       sba1919Fields: createEmptyFieldsObject('SBA_1919'),
       sba413Fields: createEmptyFieldsObject('SBA_413'),
+      ownerId,
       ...(loanChances && {
         loanChances: {
           ...loanChances,
@@ -171,7 +173,8 @@ export const convertDraftToApplication = async (
 
 // Create new SBA application
 export const createApplication = async (
-  applicantData: SBAApplicationData
+  applicantData: SBAApplicationData,
+  ownerId?: string
 ): Promise<ApplicationResponse> => {
   try {
     await initializeDirectories();
@@ -184,7 +187,8 @@ export const createApplication = async (
       emailSent: false,
       generatedDocuments: [],
       sba1919Fields: createEmptyFieldsObject('SBA_1919'),
-      sba413Fields: createEmptyFieldsObject('SBA_413')
+      sba413Fields: createEmptyFieldsObject('SBA_413'),
+      ownerId
     });
 
     await application.save();
@@ -965,10 +969,13 @@ export const getApplicationByPhone = async (phone: string): Promise<SBAApplicati
 export const getApplications = async (
   page: number = 1,
   limit: number = 10,
-  status?: ApplicationStatus
+  status?: ApplicationStatus,
+  userId?: string
 ): Promise<{ applications: SBAApplication[], total: number, page: number, pages: number }> => {
   try {
-    const query = status ? { status } : {};
+    const query: Record<string, any> = {};
+    if (status) query.status = status;
+    if (userId) query.ownerId = userId;
     const skip = (page - 1) * limit;
 
     const [applications, total] = await Promise.all([

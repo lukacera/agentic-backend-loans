@@ -17,6 +17,7 @@ import {
 } from '../services/chatboxService.js';
 import { ChatMessage, ConversationFlow } from '../types/index.js';
 import websocketService from '../services/websocket.js';
+import { requireChatSessionOwnership } from '../middleware/ownership.js';
 
 const router = express.Router();
 
@@ -80,7 +81,8 @@ const getRooms = (sessionId: string): string[] => ['global', sessionId];
  */
 router.post('/sessions', async (req, res) => {
   try {
-    const session = await createSession();
+    const userId = req.user?._id?.toString();
+    const session = await createSession(userId);
 
     res.status(201).json({
       success: true,
@@ -101,7 +103,7 @@ router.post('/sessions', async (req, res) => {
 /**
  * GET /api/chat/sessions/:sessionId - Get a chat session with history
  */
-router.get('/sessions/:sessionId', async (req, res) => {
+router.get('/sessions/:sessionId', requireChatSessionOwnership, async (req, res) => {
   try {
     const { sessionId } = req.params;
     const session = await getSession(sessionId);
@@ -149,7 +151,7 @@ router.get('/sessions/:sessionId', async (req, res) => {
 /**
  * DELETE /api/chat/sessions/:sessionId - Delete a chat session
  */
-router.delete('/sessions/:sessionId', async (req, res) => {
+router.delete('/sessions/:sessionId', requireChatSessionOwnership, async (req, res) => {
   try {
     const { sessionId } = req.params;
 
@@ -200,7 +202,7 @@ router.delete('/sessions/:sessionId', async (req, res) => {
 /**
  * POST /api/chat/sessions/:sessionId/messages - Send a message and get AI response
  */
-router.post('/sessions/:sessionId/messages', async (req, res) => {
+router.post('/sessions/:sessionId/messages', requireChatSessionOwnership, async (req, res) => {
   try {
     const { sessionId } = req.params;
     const { message, applicationId: requestApplicationId } = req.body;
@@ -487,7 +489,7 @@ router.post('/sessions/:sessionId/messages', async (req, res) => {
 /**
  * GET /api/chat/sessions/:sessionId/messages - Get message history for a session
  */
-router.get('/sessions/:sessionId/messages', async (req, res) => {
+router.get('/sessions/:sessionId/messages', requireChatSessionOwnership, async (req, res) => {
   try {
     const { sessionId } = req.params;
     const session = await getSession(sessionId);
@@ -518,7 +520,7 @@ router.get('/sessions/:sessionId/messages', async (req, res) => {
 /**
  * GET /api/chat/sessions/:sessionId/userData - Get captured user data for a session
  */
-router.get('/sessions/:sessionId/userData', async (req, res) => {
+router.get('/sessions/:sessionId/userData', requireChatSessionOwnership, async (req, res) => {
   try {
     const { sessionId } = req.params;
     const session = await getSession(sessionId);

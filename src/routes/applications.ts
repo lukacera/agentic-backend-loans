@@ -19,6 +19,7 @@ import {
   calculateSBAEligibilityForOwnerVAPI,
   generateDraftPDFs
 } from '../services/applicationService.js';
+import { requireApplicationOwnership } from '../middleware/ownership.js';
 import {
   ApplicationSubmissionRequest,
   DraftApplicationRequest,
@@ -378,8 +379,9 @@ router.post('/', async (req, res) => {
       applicationPayload.yearFounded = buyerValues.yearFounded as number;
     }
 
-    const result = await createApplication(applicationPayload);
-    
+    const userId = req.user?._id?.toString();
+    const result = await createApplication(applicationPayload, userId);
+
     res.status(201).json({
       success: true,
       data: result
@@ -458,7 +460,8 @@ router.post('/draft', async (req, res) => {
       chanceResult = calculateSBAEligibilityForBuyer(req.body as any);
     }
 
-    const draftApplication = await createDraft(applicationPayload, chanceResult);
+    const userId = req.user?._id?.toString();
+    const draftApplication = await createDraft(applicationPayload, chanceResult, userId);
 
     res.status(201).json({
       success: true,
@@ -479,7 +482,7 @@ router.post('/draft', async (req, res) => {
 });
 
 // PATCH /api/applications/:applicationId/draft - Update draft application with edited PDF from frontend
-router.patch('/:applicationId/draft', upload.single('document'), async (req, res) => {
+router.patch('/:applicationId/draft', requireApplicationOwnership, upload.single('document'), async (req, res) => {
   try {
     const { applicationId } = req.params;
     const file = req.file as Express.Multer.File | undefined;
@@ -609,7 +612,7 @@ router.patch('/:applicationId/draft', upload.single('document'), async (req, res
 });
 
 // PATCH /api/applications/:applicationId/convert - Convert draft to normal application
-router.patch('/:applicationId/convert', async (req, res) => {
+router.patch('/:applicationId/convert', requireApplicationOwnership, async (req, res) => {
   try {
     const { applicationId } = req.params;
 
@@ -840,7 +843,7 @@ router.get('/recent', async (req, res) => {
 });
 
 // GET /api/applications/:applicationId - Get specific application
-router.get('/:applicationId', async (req, res) => {
+router.get('/:applicationId', requireApplicationOwnership, async (req, res) => {
   try {
     const { applicationId } = req.params;
     const expiresIn = parseInt(req.query.expiresIn as string) || 3600; // 1 hour default
@@ -916,7 +919,8 @@ router.get('/', async (req, res) => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const status = req.query.status as ApplicationStatus;
-    
+    const userId = req.user?._id?.toString();
+
     // Validate pagination parameters
     if (page < 1 || limit < 1 || limit > 100) {
       return res.status(400).json({
@@ -924,7 +928,7 @@ router.get('/', async (req, res) => {
         error: 'Invalid pagination parameters. Page must be >= 1, limit must be 1-100'
       });
     }
-    
+
     // Validate status if provided
     if (status && !Object.values(ApplicationStatus).includes(status)) {
       return res.status(400).json({
@@ -932,14 +936,14 @@ router.get('/', async (req, res) => {
         error: `Invalid status. Must be one of: ${Object.values(ApplicationStatus).join(', ')}`
       });
     }
-    
-    const result = await getApplications(page, limit, status);
-    
+
+    const result = await getApplications(page, limit, status, userId);
+
     res.json({
       success: true,
       data: result
     });
-    
+
   } catch (error) {
     console.error('Error fetching applications:', error);
     res.status(500).json({
@@ -974,7 +978,7 @@ router.get('/status/counts', async (req, res) => {
   }
 });
 
-router.get('/:applicationId/documents/user-provided', async (req, res) => {
+router.get('/:applicationId/documents/user-provided', requireApplicationOwnership, async (req, res) => {
   try {
     const { applicationId } = req.params;
     const expiresIn = parseInt(req.query.expiresIn as string) || 3600;
@@ -1040,7 +1044,7 @@ router.get('/:applicationId/documents/user-provided', async (req, res) => {
 });
 
 // GET /api/applications/:applicationId/documents/draft - Get draft document URLs
-router.get('/:applicationId/documents/draft', async (req, res) => {
+router.get('/:applicationId/documents/draft', requireApplicationOwnership, async (req, res) => {
   try {
     const { applicationId } = req.params;
     const expiresIn = parseInt(req.query.expiresIn as string) || 3600;
@@ -1093,7 +1097,7 @@ router.get('/:applicationId/documents/draft', async (req, res) => {
 });
 
 // GET /api/applications/:applicationId/documents/:formName/fields - Extract filled/empty fields from PDF
-router.get('/:applicationId/documents/:formName/fields', async (req, res) => {
+router.get('/:applicationId/documents/:formName/fields', requireApplicationOwnership, async (req, res) => {
   try {
     const { applicationId, formName } = req.params;
     const { documentType } = req.query; // 'draft', 'unsigned', or 'signed'
@@ -1156,7 +1160,7 @@ router.get('/:applicationId/documents/:formName/fields', async (req, res) => {
   }
 });
 
-router.post('/:applicationId/documents/user-provided', upload.array('documents', 10), async (req, res) => {
+router.post('/:applicationId/documents/user-provided', requireApplicationOwnership, upload.array('documents', 10), async (req, res) => {
   try {
     const { applicationId } = req.params;
     const files = req.files as Express.Multer.File[];
@@ -1258,7 +1262,7 @@ router.post('/:applicationId/documents/user-provided', upload.array('documents',
   }
 });
 
-router.post('/:applicationId/documents/draft/mark-signed', async (req, res) => {
+router.post('/:applicationId/documents/draft/mark-signed', requireApplicationOwnership, async (req, res) => {
   try {
     const { applicationId } = req.params;
     const {
@@ -1320,7 +1324,7 @@ router.post('/:applicationId/documents/draft/mark-signed', async (req, res) => {
 });
 
 // POST /api/applications/:applicationId/documents/signed - Upload signed documents
-router.post('/:applicationId/documents/signed', upload.array('documents', 10), async (req, res) => {
+router.post('/:applicationId/documents/signed', requireApplicationOwnership, upload.array('documents', 10), async (req, res) => {
   try {
     const { applicationId } = req.params;
     const files = req.files as Express.Multer.File[];
@@ -1366,7 +1370,7 @@ router.post('/:applicationId/documents/signed', upload.array('documents', 10), a
 });
 
 // POST /api/applications/:applicationId/submit-to-bank - Send signed docs to bank
-router.post('/:applicationId/submit-to-bank', async (req, res) => {
+router.post('/:applicationId/submit-to-bank', requireApplicationOwnership, async (req, res) => {
   try {
     const { applicationId } = req.params;
 
@@ -1387,7 +1391,7 @@ router.post('/:applicationId/submit-to-bank', async (req, res) => {
 });
 
 // POST /api/applications/:applicationId/offers - Create new offer
-router.post('/:applicationId/offers', async (req, res) => {
+router.post('/:applicationId/offers', requireApplicationOwnership, async (req, res) => {
   try {
     const { applicationId } = req.params;
     const { bankId, offerDetails } = req.body;
@@ -1471,7 +1475,7 @@ router.post('/:applicationId/offers', async (req, res) => {
 });
 
 // PATCH /api/applications/:applicationId/offers/:offerId - Update offer status (accept/reject)
-router.patch('/:applicationId/offers/:offerId', async (req, res) => {
+router.patch('/:applicationId/offers/:offerId', requireApplicationOwnership, async (req, res) => {
   try {
     const { applicationId, offerId } = req.params;
     const { status } = req.body;
