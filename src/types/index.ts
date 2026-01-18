@@ -518,6 +518,9 @@ export interface SBAApplication extends Document {
   // Legacy fields (keep for backwards compatibility)
   emailSent: boolean;
 
+  // Owner (Auth0 user)
+  ownerId?: string;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -797,6 +800,7 @@ export interface IChatSession {
   messages: ChatMessage[];
   userData: Record<string, any>;
   applicationId?: string;
+  userId?: string;
   createdAt: Date;
   updatedAt: Date;
 }

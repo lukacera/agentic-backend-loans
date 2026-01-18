@@ -1,12 +1,15 @@
 import express from 'express';
 import { createServer } from 'http';
+
+// Load environment variables
+dotenv.config();
 import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { RunnableSequence } from '@langchain/core/runnables';
 import * as dotenv from 'dotenv';
 import cors from 'cors';
-import docsRouter from './routes/docs.js';
+import docsRouter, { initializeDocs } from './routes/docs.js';
 import emailRouter from './routes/emails.js';
 import applicationsRouter from './routes/applications.js';
 import bankRouter from './routes/banks.js';
@@ -18,9 +21,9 @@ import { VapiClient } from "@vapi-ai/server-sdk"
 import { Application } from './models/Application.js';
 import { downloadDocument } from './services/s3Service.js';
 import { extractFormFieldValues, CHECKBOX_GROUPS, getGroupCheckboxes, CHECKBOX_GROUPS_413, getGroupCheckboxes413 } from './services/pdfFormProcessor.js';
+import { requireAuth } from './middleware/auth.js';
+import { verifyVapiWebhook } from './middleware/vapiAuth.js';
 
-// Load environment variables
-dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
@@ -38,6 +41,7 @@ app.use(cors({
       'http://localhost:5174',
       'https://new-torvely-dashboard.vercel.app',
       'https://dashboard.vapi.ai',
+      'https://herminia-clangorous-alphonse.ngrok-free.dev',
       "chrome-extension://oeaoefimiancojpimjmkigjdkpaenbdg"
     ];
     if (!origin || allowedOrigins.includes(origin)) {
@@ -55,6 +59,8 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/torvel
 mongoose.connect(MONGODB_URI)
   .then(async () => {
     console.log('✅ Connected to MongoDB');
+    await initializeDocs();
+    console.log('✅ Document service initialized');
   })
   .catch((error) => {
     console.error('❌ MongoDB connection error:', error);
@@ -275,7 +281,7 @@ app.post('/api/create-vapi-assistant', async (req, res) => {
   }
 });
 
-app.post('/vapi-ai', async (req, res) => {
+app.post('/vapi-ai', verifyVapiWebhook, async (req, res) => {
   try {
     const { message } = req.body;
 
@@ -1403,11 +1409,11 @@ function getUserData(callId: string | undefined) {
 }
 
 // Agent routes
-app.use('/api/docs', docsRouter);
-app.use('/api/emails', emailRouter);
-app.use('/api/applications', applicationsRouter);
-app.use('/api/banks', bankRouter);
-app.use('/api/chat', chatboxRouter);
+app.use('/api/docs', docsRouter);  // Public
+app.use('/api/emails', emailRouter);  // Public (internal use)
+app.use('/api/applications', applicationsRouter);  // Protected
+app.use('/api/banks', requireAuth, bankRouter);  // Protected
+app.use('/api/chat', chatboxRouter);  // Protected
 
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

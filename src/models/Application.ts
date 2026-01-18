@@ -1,4 +1,4 @@
-import { Schema, model, Document } from 'mongoose';
+import { Schema, model } from 'mongoose';
 import { SBAApplication, ApplicationStatus, UserProvidedDocumentType, BankSubmissionStatus, DefaultDocumentType } from '../types/index.js';
 
 // Sub-schemas for SBA form fields (must match formFields.ts definitions)
@@ -512,6 +512,13 @@ const sbaApplicationSchema = new Schema<SBAApplication>({
   emailSent: {
     type: Boolean,
     default: false
+  },
+
+  // Owner (Auth0 user)
+  ownerId: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    index: true
   }
 }, {
   timestamps: true, // Automatically adds createdAt and updatedAt
@@ -522,5 +529,6 @@ sbaApplicationSchema.index({ status: 1, createdAt: -1 });
 sbaApplicationSchema.index({ 'applicantData.creditScore': 1 });
 sbaApplicationSchema.index({ 'banks.bank': 1 });
 sbaApplicationSchema.index({ 'banks.status': 1 });
+sbaApplicationSchema.index({ ownerId: 1, createdAt: -1 });
 
 export const Application = model<SBAApplication>('Application', sbaApplicationSchema);
