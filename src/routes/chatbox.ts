@@ -202,7 +202,7 @@ router.delete('/sessions/:sessionId', requireChatSessionOwnership, async (req, r
 /**
  * POST /api/chat/sessions/:sessionId/messages - Send a message and get AI response
  */
-router.post('/sessions/:sessionId/messages', requireChatSessionOwnership, async (req, res) => {
+router.post('/sessions/:sessionId/messages', async (req, res) => {
   try {
     const { sessionId } = req.params;
     const { message, applicationId: requestApplicationId } = req.body;

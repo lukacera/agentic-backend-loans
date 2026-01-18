@@ -16,12 +16,21 @@ import {
 
 const router = express.Router();
 
-// Initialize document agent
-const documentAgent = createDocumentAgent();
+// Lazy-initialized document agent (created on first use to ensure env vars are loaded)
+let documentAgent: ReturnType<typeof createDocumentAgent> | null = null;
 
-// Initialize storage on startup
-initializeDocumentAgent().catch(console.error);
-initializePDFDirectories().catch(console.error);
+const getDocumentAgent = () => {
+  if (!documentAgent) {
+    documentAgent = createDocumentAgent();
+  }
+  return documentAgent;
+};
+
+// Initialize storage (called after env vars are loaded)
+export const initializeDocs = async () => {
+  await initializeDocumentAgent();
+  await initializePDFDirectories();
+};
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -129,7 +138,7 @@ router.post('/forms/:filename/auto-fill', async (req, res) => {
     const mappedData = await mapDataWithAI(
       analysis.fields,
       userData,
-      documentAgent,
+      getDocumentAgent(),
       customInstructions
     );
 

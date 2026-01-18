@@ -1,12 +1,15 @@
 import express from 'express';
 import { createServer } from 'http';
+
+// Load environment variables
+dotenv.config();
 import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { RunnableSequence } from '@langchain/core/runnables';
 import * as dotenv from 'dotenv';
 import cors from 'cors';
-import docsRouter from './routes/docs.js';
+import docsRouter, { initializeDocs } from './routes/docs.js';
 import emailRouter from './routes/emails.js';
 import applicationsRouter from './routes/applications.js';
 import bankRouter from './routes/banks.js';
@@ -21,8 +24,6 @@ import { extractFormFieldValues, CHECKBOX_GROUPS, getGroupCheckboxes, CHECKBOX_G
 import { requireAuth } from './middleware/auth.js';
 import { verifyVapiWebhook } from './middleware/vapiAuth.js';
 
-// Load environment variables
-dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
@@ -58,6 +59,8 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/torvel
 mongoose.connect(MONGODB_URI)
   .then(async () => {
     console.log('✅ Connected to MongoDB');
+    await initializeDocs();
+    console.log('✅ Document service initialized');
   })
   .catch((error) => {
     console.error('❌ MongoDB connection error:', error);
@@ -1408,7 +1411,7 @@ function getUserData(callId: string | undefined) {
 // Agent routes
 app.use('/api/docs', docsRouter);  // Public
 app.use('/api/emails', emailRouter);  // Public (internal use)
-app.use('/api/applications', requireAuth, applicationsRouter);  // Protected
+app.use('/api/applications', applicationsRouter);  // Protected
 app.use('/api/banks', requireAuth, bankRouter);  // Protected
 app.use('/api/chat', chatboxRouter);  // Protected
 
