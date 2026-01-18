@@ -1,8 +1,6 @@
 import express from 'express';
 import { createServer } from 'http';
 
-// Load environment variables
-dotenv.config();
 import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { StringOutputParser } from '@langchain/core/output_parsers';
@@ -25,6 +23,8 @@ import { requireAuth } from './middleware/auth.js';
 import { verifyVapiWebhook } from './middleware/vapiAuth.js';
 
 
+// Load environment variables
+dotenv.config();
 const app = express();
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 3000;
