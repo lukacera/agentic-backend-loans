@@ -43,6 +43,7 @@ app.use(cors({
       'https://agentic-loans-dashboard.vercel.app',
       'https://dashboard.vapi.ai',
       'https://herminia-clangorous-alphonse.ngrok-free.dev',
+      'https://agentic-loans-dashboard-rgmovf5md-ceraa04s-projects.vercel.app',
       "chrome-extension://oeaoefimiancojpimjmkigjdkpaenbdg"
     ];
     if (!origin || allowedOrigins.includes(origin)) {
