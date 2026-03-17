@@ -1,7 +1,7 @@
 import express from 'express';
 import { createServer } from 'http';
 
-import { ChatAnthropic } from '@langchain/anthropic';
+import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { StringOutputParser } from '@langchain/core/output_parsers';
 import { RunnableSequence } from '@langchain/core/runnables';
@@ -77,9 +77,9 @@ const vapi = new VapiClient({
 
 // Initialize the LangChain components using functional approach
 const createLLM = () => {
-  return new ChatAnthropic({
-    anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-    modelName: "claude-haiku-4-5"
+  return new ChatOpenAI({
+    openAIApiKey: process.env.OPENAI_API_KEY,
+    modelName: "gpt-4o-mini"
   });
 };
 

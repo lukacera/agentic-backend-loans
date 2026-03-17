@@ -1,6 +1,6 @@
-import { ChatAnthropic } from '@langchain/anthropic';
+import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
-import { InMemoryCache } from "@langchain/core/caches"; 
+import { InMemoryCache } from "@langchain/core/caches";
 import { StringOutputParser, StructuredOutputParser } from '@langchain/core/output_parsers';
 import { RunnableSequence } from '@langchain/core/runnables';
 import { AgentConfig, AgentStatus, BaseAgentResponse } from '../types';
@@ -12,7 +12,7 @@ export interface AgentState {
   startTime: Date;
   tasksProcessed: number;
   lastActivity: Date;
-  llm: ChatAnthropic;
+  llm: ChatOpenAI;
 }
 
 // Create an agent instance
@@ -25,12 +25,12 @@ export const createAgent = (name: string, config: Partial<AgentConfig> = {}): Ag
     ...config
   };
 
-  const cache = new InMemoryCache(); // 
+  const cache = new InMemoryCache();
 
-  const llm = new ChatAnthropic({
-    anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-    modelName: "claude-haiku-4-5",
-    cache: cache 
+  const llm = new ChatOpenAI({
+    openAIApiKey: process.env.OPENAI_API_KEY,
+    modelName: "gpt-4o-mini",
+    cache: cache
   });
 
   return {
@@ -51,42 +51,17 @@ export const processWithLLM = async (
   additionalContext?: string
 ): Promise<string> => {
   
-  // 1. Define messages with Cache Control
-  // Anthropic requires the 'cache_control' metadata to know WHAT to cache.
   const messages: any[] = [
-    {
-      role: "system",
-      content: [
-        {
-          type: "text",
-          text: systemPrompt,
-          // This tells Anthropic: "Keep this system prompt in the KV cache"
-          cache_control: { type: "" } 
-        }
-      ]
-    }
+    { role: "system", content: systemPrompt }
   ];
 
   if (additionalContext) {
-    messages.push({
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: `Context: ${additionalContext}`,
-          // Optional: Cache the context too if it's very large (>2048 tokens)
-          cache_control: { type: "ephemeral" }
-        }
-      ]
-    });
+    messages.push({ role: "user", content: `Context: ${additionalContext}` });
   }
 
   messages.push({ role: "user", content: userInput });
 
-  // 2. We use the raw messages format for better control over metadata
   try {
-    // Note: Use .invoke() or .predictMessages() 
-    // If using RunnableSequence, ensure the prompt template preserves metadata
     const response = await agent.llm.invoke(messages);
     
     updateActivity(agent);
