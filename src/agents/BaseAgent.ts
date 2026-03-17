@@ -1,7 +1,7 @@
-import { ChatOpenAI } from '@langchain/openai';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
-import { StringOutputParser } from '@langchain/core/output_parsers';
+import { InMemoryCache } from "@langchain/core/caches"; 
+import { StringOutputParser, StructuredOutputParser } from '@langchain/core/output_parsers';
 import { RunnableSequence } from '@langchain/core/runnables';
 import { AgentConfig, AgentStatus, BaseAgentResponse } from '../types';
 
@@ -25,9 +25,12 @@ export const createAgent = (name: string, config: Partial<AgentConfig> = {}): Ag
     ...config
   };
 
+  const cache = new InMemoryCache(); // 
+
   const llm = new ChatAnthropic({
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-    modelName: "claude-haiku-4-5"
+    modelName: "claude-haiku-4-5",
+    cache: cache 
   });
 
   return {
@@ -47,29 +50,50 @@ export const processWithLLM = async (
   userInput: string,
   additionalContext?: string
 ): Promise<string> => {
-  const messages: [string, string][] = [
-    ["system", systemPrompt],
-    ["human", userInput]
+  
+  // 1. Define messages with Cache Control
+  // Anthropic requires the 'cache_control' metadata to know WHAT to cache.
+  const messages: any[] = [
+    {
+      role: "system",
+      content: [
+        {
+          type: "text",
+          text: systemPrompt,
+          // This tells Anthropic: "Keep this system prompt in the KV cache"
+          cache_control: { type: "" } 
+        }
+      ]
+    }
   ];
 
   if (additionalContext) {
-    messages.splice(1, 0, ["assistant", `Context: ${additionalContext}`]);
+    messages.push({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `Context: ${additionalContext}`,
+          // Optional: Cache the context too if it's very large (>2048 tokens)
+          cache_control: { type: "ephemeral" }
+        }
+      ]
+    });
   }
 
-  const prompt = ChatPromptTemplate.fromMessages(messages);
-  const chain = RunnableSequence.from([
-    prompt,
-    agent.llm,
-    new StringOutputParser()
-  ]);
+  messages.push({ role: "user", content: userInput });
 
+  // 2. We use the raw messages format for better control over metadata
   try {
-    const response = await chain.invoke({ input: userInput });
+    // Note: Use .invoke() or .predictMessages() 
+    // If using RunnableSequence, ensure the prompt template preserves metadata
+    const response = await agent.llm.invoke(messages);
+    
     updateActivity(agent);
-    return response;
+    return response.content as string;
   } catch (error) {
-    console.error(`${agent.name} LLM processing error:`, error);
-    throw new Error(`LLM processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    console.error(`${agent.name} LLM error:`, error);
+    throw error;
   }
 };
 
